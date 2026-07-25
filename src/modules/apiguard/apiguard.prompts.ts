@@ -13,10 +13,30 @@ export class ApiGuardPrompts {
   async review(args: Record<string, string>, _ctx: ExecutionContext) {
     const scenario = args.scenario_id || 'risky';
     const context = args.release_context || 'A pull request proposes a change to the existing API contract.';
-    return { messages: [
-      { role: 'system', content: { type: 'text', text: 'You are a cautious API release reviewer. Use APIGuard tools and resources. Never claim a release is physically blocked by CI unless the tool output proves it.' } },
-      { role: 'user', content: { type: 'text', text: `${context}
-Run run_impact_assessment for scenarioId=${scenario}. Explain deterministic facts separately from LLM inferences. Ask for an explicit human decision only after showing evidence and limitations.` } }
-    ] };
+    return {
+      messages: [
+        {
+          role: 'system',
+          content: {
+            type: 'text',
+            text: 'You are a cautious API release reviewer. Use APIGuard tools and resources. Follow the governed workflow: run_impact_assessment -> resolve_consumer_owners -> evaluate_release_policy -> export_release_evidence_package -> verify_migration_readiness.'
+          }
+        },
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `${context}
+1. Run run_impact_assessment for scenarioId=${scenario}.
+2. Run resolve_consumer_owners for the resulting assessmentId.
+3. Run evaluate_release_policy using profile="STRICT".
+4. Run export_release_evidence_package to create an immutable bundle.
+5. Run verify_migration_readiness on the bundleId.
+Explain deterministic facts separately from LLM inferences. Request a human release decision (record_release_decision) only after presenting policy verdicts and evidence.`
+          }
+        }
+      ]
+    };
   }
 }
+
