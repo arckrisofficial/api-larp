@@ -24,13 +24,16 @@ export function fieldFromChange(change: ApiChange): string | undefined {
 export function queriesForChanges(changes: ApiChange[]): EvidenceSearchQuery[] {
   const byField = new Map<string, string[]>();
   for (const change of changes.filter((item) => item.breaking)) {
-    const field = fieldFromChange(change);
-    if (!field) continue;
-    byField.set(field, [...(byField.get(field) ?? []), change.id]);
+    const operationPath = change.code === 'OPERATION_REMOVED'
+      ? change.operation.match(/^[A-Z]+\s+(.+)$/)?.[1]
+      : undefined;
+    const query = operationPath ?? fieldFromChange(change);
+    if (!query) continue;
+    byField.set(query, [...(byField.get(query) ?? []), change.id]);
   }
-  return [...byField.entries()].map(([field, changeIds]) => ({
-    id: `query_${field.replace(/[^a-z0-9_-]/gi, '_')}`,
-    query: field,
+  return [...byField.entries()].map(([query, changeIds]) => ({
+    id: `query_${query.replace(/[^a-z0-9_-]/gi, '_')}`,
+    query,
     changeIds
   }));
 }

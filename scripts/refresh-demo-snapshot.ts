@@ -8,6 +8,7 @@ import { EvidenceSnapshotSchema } from '../src/modules/apiguard/evidence.schemas
 import { queriesForChanges } from '../src/modules/apiguard/evidence.provider.js';
 import { GitHubEvidenceProvider } from '../src/modules/apiguard/github-evidence.provider.js';
 import { RepositoryScopeRepository } from '../src/modules/apiguard/repository-scope.repository.js';
+import { RepositoryScopeService } from '../src/modules/apiguard/repository-scope.service.js';
 
 async function readJson(file: string): Promise<Record<string, unknown>> {
   const value = JSON.parse(await readFile(file, 'utf8')) as unknown;
@@ -26,15 +27,27 @@ async function main(): Promise<void> {
   const candidate = await readJson(path.join(scenarioDir, 'candidate.openapi.json'));
   const changes = diffOpenApi(baseline, candidate);
   const scopeRepo = new RepositoryScopeRepository(config);
-  const provider = new GitHubEvidenceProvider(config, scopeRepo);
-  const live = await provider.discover(scenarioId, changes);
-  const queries = queriesForChanges(changes);
-  const repoMap = new Map<string, { owner: string; name: string; defaultBranch: string; commitSha: string }>();
-  for (const item of live.items) {
-    const [owner, name] = item.repository.split('/');
-    if (!owner || !name) continue;
-    repoMap.set(item.repository, { owner, name, defaultBranch: item.branch, commitSha: item.commitSha });
+  const scopeService = new RepositoryScopeService(config, scopeRepo);
+  await scopeService.bootstrapIfEmpty();
+  const provider = new GitHubEvidenceProvider(config, scopeRepo, scopeService);
+  const { result: live, snapshot: liveSnapshot } = await provider.discoverSnapshot(
+    scenarioId,
+    changes,
+    sha256(baseline),
+    sha256(candidate),
+    true
+  );
+  if (
+    liveSnapshot.repositoriesFailed.length > 0
+    || liveSnapshot.repositoriesChecked.length !== liveSnapshot.repositoriesExpected.length
+  ) {
+    throw new Error(
+      `Refusing to replace the committed demo snapshot because repository coverage was incomplete: `
+      + `${liveSnapshot.repositoriesChecked.length}/${liveSnapshot.repositoriesExpected.length} checked, `
+      + `${liveSnapshot.repositoriesFailed.length} failed.`
+    );
   }
+  const queries = queriesForChanges(changes);
   const queryMap = new Map(queries.map((query) => [query.query, query] as const));
   const snapshot = {
     schemaVersion: 1 as const,
@@ -45,7 +58,12 @@ async function main(): Promise<void> {
     githubApiVersion: '2022-11-28',
     scope: { owner: config.githubOwner, repositories: config.githubRepositories },
     queries: queries.map((query) => ({ queryId: query.id, query: query.query, generatedFromChangeIds: query.changeIds })),
-    repositories: [...repoMap.values()],
+    repositories: liveSnapshot.repositoriesExpected.map((repository) => ({
+      owner: repository.owner,
+      name: repository.name,
+      defaultBranch: repository.branch,
+      commitSha: repository.commitSha
+    })),
     results: live.items.map((item) => ({
       evidenceId: item.id.replace(/^live_/, 'ev_'),
       queryId: queryMap.get(item.searchQuery)?.id ?? `query_${item.searchQuery}`,

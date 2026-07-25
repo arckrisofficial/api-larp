@@ -1,5 +1,5 @@
 services:
-  api-larp:
+  apiguard:
     build: .
     ports:
       - "3002:3002"
@@ -8,5 +8,11 @@ services:
       PORT: 3002
       USE_LIVE_GITHUB: "false"
       USE_LLM: "false"
+      APIGUARD_GITHUB_WRITE_ENABLED: "false"
       DEMO_SCENARIO: risky
       LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

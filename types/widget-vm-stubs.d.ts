@@ -2,10 +2,15 @@ declare namespace JSX {
   interface IntrinsicElements { [elementName: string]: any; }
 }
 
+declare namespace React {
+  type CSSProperties = Record<string, any>;
+}
+
 declare module 'react' {
   export type ReactNode = any;
   export function useMemo<T>(factory: () => T, deps: unknown[]): T;
   export function useState<T>(initial: T): [T, (value: T | ((current: T) => T)) => void];
+  export function useEffect(effect: () => void | (() => void), deps?: unknown[]): void;
 }
 
 declare module '@nitrostack/widgets' {

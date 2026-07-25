@@ -58,14 +58,23 @@ export class AssessmentService {
       snapshot = pair.snapshot;
     }
 
+    this.evidenceService.assertSnapshotCompatible(snapshot, {
+      scenarioId: opts.scenarioId,
+      baselineSpecHash: baselineHash,
+      candidateSpecHash: candidateHash,
+      validChangeIds: changes.map((change) => change.id)
+    });
+
     // Risk classification
-    const risk = await this.riskService.assess(changes, snapshot.results.map(snapshotResultToEvidenceItem));
+    const risk = await this.riskService.assess(changes, this.evidenceService.toEvidenceItems(snapshot));
     const now = new Date().toISOString();
 
     const expectedRepos = snapshot.repositoriesExpected.map((r) => `${r.owner}/${r.name}`);
     const checkedRepos = snapshot.repositoriesChecked;
     const failedRepos = snapshot.repositoriesFailed.map((f) => f.repository);
     const coverageRatio = expectedRepos.length > 0 ? checkedRepos.length / expectedRepos.length : 0;
+    const queriedChangeIds = new Set(snapshot.queries.flatMap((query) => query.generatedFromChangeIds));
+    const unqueriedBreakingChanges = changes.filter((change) => change.breaking && !queriedChangeIds.has(change.id));
 
     const repositoryCommits = Object.fromEntries(
       snapshot.repositoriesExpected.map((r) => [`${r.owner}/${r.name}`, r.commitSha])
@@ -78,7 +87,8 @@ export class AssessmentService {
       checkedRepos.length,
       expectedRepos.length,
       failedRepos.length,
-      risk.classifierMode
+      risk.classifierMode,
+      unqueriedBreakingChanges.length
     );
 
     const assessment: Assessment = {
@@ -100,7 +110,12 @@ export class AssessmentService {
       changes,
       evidence: risk.evidence,
       overallSeverity: severity,
-      limitations: [...snapshot.repositoriesFailed.map((f) => `Repo failure ${f.repository}: ${f.errorCode}`), ...risk.limitations, ...extraLimitations],
+      limitations: [
+        ...(snapshot.limitations ?? []),
+        ...snapshot.repositoriesFailed.map((f) => `Repo failure ${f.repository}: ${f.errorCode}`),
+        ...risk.limitations,
+        ...extraLimitations
+      ],
       durationMs: Date.now() - started,
       createdAt: now,
       updatedAt: now,
@@ -118,8 +133,8 @@ export class AssessmentService {
 
   decide(request: DecisionRequest): Assessment {
     const current = this.get(request.assessmentId);
-    if (request.decision === 'APPROVE' && current.analysisStatus === 'INCOMPLETE') {
-      throw new Error(`Cannot APPROVE release for INCOMPLETE assessment ${request.assessmentId}. Resolve missing evidence first.`);
+    if (request.decision === 'APPROVE' && current.analysisStatus !== 'COMPLETE') {
+      throw new Error(`Cannot APPROVE release for ${current.analysisStatus} assessment ${request.assessmentId}. Resolve warnings or missing evidence first.`);
     }
     if (request.decision === 'BLOCK' && (!request.reason || request.reason.trim().length < 3)) {
       throw new Error('A reason is required when BLOCKING a release.');
@@ -128,32 +143,14 @@ export class AssessmentService {
   }
 }
 
-function snapshotResultToEvidenceItem(r: any) {
-  return {
-    id: r.evidenceId,
-    sourceMode: 'live' as const,
-    capturedAt: new Date().toISOString(),
-    repository: r.repository,
-    branch: r.branch,
-    commitSha: r.commitSha,
-    searchQuery: '',
-    generatedFromChangeIds: [],
-    filePath: r.filePath,
-    lineStart: r.lineStart,
-    lineEnd: r.lineEnd,
-    snippet: r.snippet,
-    contentHash: r.contentHash,
-    htmlUrl: r.htmlUrl
-  };
-}
-
 function computeTruthfulStatusAndSeverity(
   changes: ApiChange[],
   evidence: AssessedEvidence[],
   checkedCount: number,
   expectedCount: number,
   failedCount: number,
-  classifierMode: string
+  classifierMode: string,
+  unqueriedBreakingCount: number
 ): { status: AnalysisStatus; severity: 'HIGH' | 'MEDIUM' | 'LOW'; extraLimitations: string[] } {
   const breakingChanges = changes.filter((c) => c.breaking);
   const extraLimitations: string[] = [];
@@ -178,8 +175,14 @@ function computeTruthfulStatusAndSeverity(
   if (checkedCount === 0 || (breakingChanges.length > 0 && evidence.length === 0)) {
     status = 'INCOMPLETE';
     extraLimitations.push('Assessment marked INCOMPLETE: breaking changes exist but no evidence was found or verified.');
-  } else if (failedCount > 0 || likelyCount > 0 || classifierMode.includes('fallback')) {
+  } else if (failedCount > 0 || likelyCount > 0 || classifierMode.includes('fallback') || unqueriedBreakingCount > 0) {
     status = 'COMPLETE_WITH_WARNINGS';
+  }
+
+  if (unqueriedBreakingCount > 0) {
+    extraLimitations.push(
+      `${unqueriedBreakingCount} breaking contract change(s) did not produce a supported repository evidence query and require manual review.`
+    );
   }
 
   return { status, severity, extraLimitations };

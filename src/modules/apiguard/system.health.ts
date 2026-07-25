@@ -22,12 +22,29 @@ export class SystemReadiness implements HealthCheckInterface {
   constructor(private readonly config: ApiGuardConfig) {}
 
   async check(): Promise<HealthCheckResult> {
-    const isLiveGitHubButNoToken = this.config.useLiveGitHub && !this.config.githubToken;
-    
-    if (isLiveGitHubButNoToken) {
+    if (this.config.useLiveGitHub && !this.config.githubToken) {
       return {
         status: 'down',
         message: 'APIGuard is improperly configured: USE_LIVE_GITHUB=true but GITHUB_TOKEN is missing.'
+      };
+    }
+
+    const selectedModelKey = this.config.llmProvider === 'anthropic'
+      ? this.config.anthropicKey
+      : this.config.llmProvider === 'gemini'
+        ? this.config.geminiKey
+        : this.config.openAiKey;
+    if (this.config.useLlm && !selectedModelKey) {
+      return {
+        status: 'down',
+        message: `APIGuard is improperly configured: USE_LLM=true but the ${this.config.llmProvider} API key is missing.`
+      };
+    }
+
+    if (this.config.githubWriteEnabled && (!this.config.githubToken || this.config.githubWritableRepositories.size === 0)) {
+      return {
+        status: 'down',
+        message: 'APIGuard GitHub writes require GITHUB_TOKEN and APIGUARD_WRITABLE_REPOSITORIES.'
       };
     }
 

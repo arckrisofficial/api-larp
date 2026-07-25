@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      USE_LIVE_GITHUB: "false"
+      USE_LLM: "false"
+      APIGUARD_GITHUB_WRITE_ENABLED: "false"
+      DEMO_SCENARIO: risky
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck, test, build
+        run: npm run ci
+      - name: Offline end-to-end smoke test
+        run: npm run test:e2e

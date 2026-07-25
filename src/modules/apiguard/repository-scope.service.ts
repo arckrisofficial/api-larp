@@ -106,7 +106,7 @@ export class RepositoryScopeService {
       repository: { owner: managed.owner, name: managed.name, branch: managed.branch, lastKnownCommitSha: managed.lastKnownCommitSha, status: 'ACTIVE' },
       scope: { version: scope.version, activeCount: active, totalCount: scope.repositories.length },
       snapshotStatus: 'STALE',
-      message: `${input.owner}/${input.repository} is now ACTIVE in the assessment scope. Run refresh_repository_evidence to collect evidence.`
+      message: `${input.owner}/${input.repository} is now ACTIVE in the assessment scope. Run collect_consumer_evidence with forceRefresh=true to collect evidence.`
     };
   }
 
@@ -233,12 +233,12 @@ export class RepositoryScopeService {
     }
 
     const gh = async (path: string): Promise<Record<string, unknown>> => {
-      const res = await fetch(`https://api.github.com${path}`, {
+      const res = await fetch(`${this.config.githubApiBaseUrl}${path}`, {
         headers: {
           Authorization: `Bearer ${this.config.githubToken}`,
           Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'api-larp-nitrostack-hackathon'
+          'X-GitHub-Api-Version': this.config.githubApiVersion,
+          'User-Agent': 'apiguard-nitrostack-hackathon'
         }
       });
       if (res.status === 404) throw new Error(`Repository ${owner}/${repository} was not found or is not accessible.`);

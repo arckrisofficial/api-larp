@@ -39,6 +39,8 @@ export interface EvidenceSnapshotV2 {
     repository: string;
     errorCode: string;
   }>;
+  /** Provenance and coverage limitations preserved with the snapshot. */
+  limitations?: string[];
   queries: EvidenceSnapshotQuery[];
   results: EvidenceSnapshotResult[];
 }

@@ -1,62 +1,71 @@
 # Verification Report
 
-## Completed in the preparation VM
+## Completed in the integration environment
 
-- Project structure checked against the current NitroStack quick-start and generated module/tool/resource/prompt patterns.
-- Server TypeScript syntax/type flow checked with local SDK compatibility declarations.
-- Widget TSX syntax/type flow checked with local widget compatibility declarations.
-- All server ESM relative imports use `.js` extensions.
-- OpenAPI 3.0 domain tests passed.
-- Local `$ref` handling tested.
-- Required response-property removal tested.
-- Response property type change tested.
-- Direction-aware enum compatibility tested.
-- Optional response-property addition tested as non-breaking.
-- Prompt-injection comment fixture tested.
-- Comment-only false positive tested.
-- Test-file deterministic filter tested.
-- Decision idempotency and state transition tested.
-- Offline fixture-to-assessment-to-decision integration verification passed.
-- Secret-pattern scan performed; no committed credentials were found.
+- Reviewed `main` and `jeffbezos`; `main` already contained the `jeffbezos` ancestry.
+- Consolidated the public MCP surface to eight deliberate tools and six read-only resources.
+- Server static TypeScript validation passed with local NitroStack compatibility declarations.
+- Widget TSX/static validation passed with local widget compatibility declarations.
+- `git diff --check` passed.
+- Secret-pattern scan found no committed OpenAI, Anthropic, Gemini, GitHub, or NitroStack credentials.
+- 34 offline tests passed.
+- Offline end-to-end workflow passed.
 
-## Last VM result
+## Last verified result
 
 ```text
-6 tests passed
+34 tests passed
 4 structured API changes
 5 consumer evidence items
 Overall severity: HIGH
 Decision state: BLOCKED_PENDING_MIGRATION
+Consumer fix plan: generated
 ```
 
-The generated integration result is available at:
+The generated integration artifact is available at:
 
 ```text
 verification/offline-assessment.json
 ```
 
-## Could not be completed in the preparation VM
+## What the tests cover
 
-The VM had no outbound DNS access to `registry.npmjs.org`. Consequently, it could not:
+- OpenAPI 3.0 validation and local `$ref` handling
+- semantic request/response compatibility rules
+- unsupported polymorphic-schema fail-closed behavior
+- evidence provenance and snapshot compatibility
+- no fabricated pinned-source snippets
+- prompt-injection isolation
+- schema validation and hallucination reconciliation
+- deterministic severity and missing-evidence behavior
+- OpenAI, Anthropic, and Gemini structured provider protocols
+- decision state, versioning, and idempotency
+- migration plan generation constraints
+- draft GitHub PR allow-list, stale-state, and idempotency behavior
+- exact public MCP tool surface
 
-- Download `@nitrostack/cli` through the requested `npx` command.
-- Install `@nitrostack/core`, `@nitrostack/widgets`, Next.js or Zod from npm.
-- Run the real `nitrostack-cli build` command.
-- Connect to the desktop NitroStudio application.
-- Authenticate to the team's NitroCloud account.
-- Deploy to NitroCloud.
-- Create or push public GitHub demonstration repositories.
+## Not completed in this environment
 
-The exact requested command failure is retained in `docs/CLI_EXACT_ATTEMPT.txt`; an additional latest-version attempt is in `docs/CLI_ATTEMPT.txt`.
+A fresh `npm ci` could not complete because the available npm registry/network path returned service and DNS failures. Consequently, this environment did not run:
 
-## Required final verification on the team's networked machine
+- the real downloaded `@nitrostack/cli` production build
+- NitroStudio desktop inspection
+- authenticated NitroCloud deployment
+- real OpenAI, Anthropic, or Gemini calls
+- real GitHub API writes or draft pull-request creation
+
+Temporary compatibility declarations and runtime stubs were used only for offline validation and are not included in the final archive.
+
+## Required networked-machine verification
 
 ```bash
-npm install
-npm run check
-npm run dev
+rm -rf node_modules src/widgets/node_modules dist
+npm ci
+npm run ci
+npm run test:e2e
+npm run demo
 ```
 
-Then complete `docs/NITROCLOUD_DEPLOYMENT.md`.
+Then follow `docs/NITROCLOUD_DEPLOYMENT.md` and test GitHub writes only against a disposable repository included in `APIGUARD_WRITABLE_REPOSITORIES`.
 
-This repository must not be described as already deployed until those steps succeed and a live NitroCloud URL exists.
+Do not describe the project as deployed, live-provider validated, or real-PR validated until those checks have passed.

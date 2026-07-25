@@ -12,6 +12,7 @@ interface NormalizedSchema {
   properties: Map<string, NormalizedSchema>;
   enumValues?: Set<string | number | boolean>;
   items?: NormalizedSchema;
+  unsupportedConstructs: string[];
   sourcePointer: string;
 }
 
@@ -28,6 +29,7 @@ interface NormalizedOperation {
   path: string;
   parameters: Map<string, NormalizedParameter>;
   requestSchema?: NormalizedSchema;
+  requestRequired: boolean;
   responseSchemas: Map<string, NormalizedSchema>;
   sourcePointer: string;
 }
@@ -46,29 +48,48 @@ function decodePointerSegment(segment: string): string {
   return segment.replace(/~1/g, '/').replace(/~0/g, '~');
 }
 
-export function resolveLocalRef(document: JsonObject, ref: string, visited = new Set<string>()): unknown {
+function resolvePointer(document: JsonObject, ref: string): unknown {
   if (!ref.startsWith('#/')) throw new OpenApiDiffError(`Remote or unsupported reference: ${ref}`);
-  if (visited.has(ref)) throw new OpenApiDiffError(`Recursive reference is outside the MVP subset: ${ref}`);
-  visited.add(ref);
   let current: unknown = document;
   for (const raw of ref.slice(2).split('/')) {
     const segment = decodePointerSegment(raw);
     if (!isObject(current) || !(segment in current)) throw new OpenApiDiffError(`Invalid local reference: ${ref}`);
     current = current[segment];
   }
-  if (isObject(current) && typeof current.$ref === 'string') return resolveLocalRef(document, current.$ref, visited);
   return current;
 }
 
+function resolveRefChain(
+  document: JsonObject,
+  input: unknown,
+  visited = new Set<string>()
+): { value: unknown; visited: Set<string> } {
+  let current = input;
+  const nextVisited = new Set(visited);
+  while (isObject(current) && typeof current.$ref === 'string') {
+    const ref = current.$ref;
+    if (!ref.startsWith('#/')) throw new OpenApiDiffError(`Remote or unsupported reference: ${ref}`);
+    if (nextVisited.has(ref)) throw new OpenApiDiffError(`Recursive reference is outside the MVP subset: ${ref}`);
+    nextVisited.add(ref);
+    current = resolvePointer(document, ref);
+  }
+  return { value: current, visited: nextVisited };
+}
+
+export function resolveLocalRef(document: JsonObject, ref: string, visited = new Set<string>()): unknown {
+  return resolveRefChain(document, { $ref: ref }, visited).value;
+}
+
 function dereference(document: JsonObject, value: unknown, visited = new Set<string>()): unknown {
-  if (isObject(value) && typeof value.$ref === 'string') return resolveLocalRef(document, value.$ref, visited);
-  return value;
+  return resolveRefChain(document, value, visited).value;
 }
 
 function normaliseSchema(document: JsonObject, input: unknown, pointer: string, visited = new Set<string>()): NormalizedSchema {
-  const dereferenced = dereference(document, input, new Set(visited));
+  const resolved = resolveRefChain(document, input, visited);
+  const dereferenced = resolved.value;
+  const resolvedVisited = resolved.visited;
   if (!isObject(dereferenced)) {
-    return { nullable: false, required: new Set(), properties: new Map(), sourcePointer: pointer };
+    return { nullable: false, required: new Set(), properties: new Map(), unsupportedConstructs: [], sourcePointer: pointer };
   }
   const schema = dereferenced;
   const type = typeof schema.type === 'string' ? schema.type : undefined;
@@ -76,13 +97,15 @@ function normaliseSchema(document: JsonObject, input: unknown, pointer: string, 
   const properties = new Map<string, NormalizedSchema>();
   if (isObject(schema.properties)) {
     for (const [name, property] of Object.entries(schema.properties)) {
-      properties.set(name, normaliseSchema(document, property, `${pointer}/properties/${name}`, new Set(visited)));
+      properties.set(name, normaliseSchema(document, property, `${pointer}/properties/${name}`, new Set(resolvedVisited)));
     }
   }
   const enumValues = Array.isArray(schema.enum)
     ? new Set(schema.enum.filter((v): v is string | number | boolean => ['string', 'number', 'boolean'].includes(typeof v)))
     : undefined;
-  const items = schema.items ? normaliseSchema(document, schema.items, `${pointer}/items`, new Set(visited)) : undefined;
+  const items = schema.items ? normaliseSchema(document, schema.items, `${pointer}/items`, new Set(resolvedVisited)) : undefined;
+  const unsupportedConstructs = ['oneOf', 'anyOf', 'allOf', 'not', 'discriminator']
+    .filter((key) => key in schema);
   return {
     type,
     nullable: schema.nullable === true,
@@ -90,6 +113,7 @@ function normaliseSchema(document: JsonObject, input: unknown, pointer: string, 
     properties,
     enumValues,
     items,
+    unsupportedConstructs,
     sourcePointer: pointer
   };
 }
@@ -132,6 +156,7 @@ function normaliseOperation(document: JsonObject, path: string, method: HttpMeth
   );
   const requestBody = dereference(document, operation.requestBody);
   const requestSchema = isObject(requestBody) ? pickJsonSchema(document, requestBody.content, `${pointer}/requestBody/content/application~1json`) : undefined;
+  const requestRequired = isObject(requestBody) && requestBody.required === true;
   const responseSchemas = new Map<string, NormalizedSchema>();
   if (isObject(operation.responses)) {
     for (const [status, raw] of Object.entries(operation.responses)) {
@@ -141,7 +166,7 @@ function normaliseOperation(document: JsonObject, path: string, method: HttpMeth
       if (schema) responseSchemas.set(status, schema);
     }
   }
-  return { method, path, parameters, requestSchema, responseSchemas, sourcePointer: pointer };
+  return { method, path, parameters, requestSchema, requestRequired, responseSchemas, sourcePointer: pointer };
 }
 
 export function normaliseOpenApi(document: JsonObject): NormalizedApi {
@@ -174,13 +199,13 @@ function compareEnums(baseline: NormalizedSchema, candidate: NormalizedSchema, c
   const changes: ApiChange[] = [];
 
   if (removed.length) {
-    const breaking = context.location === 'request';
+    const breaking = context.location !== 'response';
     changes.push({
       id: changeId([context.operation, context.jsonPath, 'ENUM_NARROWED', removed]),
       code: 'ENUM_NARROWED', breaking, operation: context.operation, location: context.location,
       jsonPath: context.jsonPath, before: [...baseline.enumValues], after: [...candidate.enumValues],
-      rationale: context.location === 'request'
-        ? `Previously valid request enum values were removed: ${removed.join(', ')}.`
+      rationale: context.location !== 'response'
+        ? `Previously valid request/input enum values were removed: ${removed.join(', ')}.`
         : `Response enum values were removed. This narrows server output and is normally backward compatible for consumers.`,
       sourcePointers: { baseline: baseline.sourcePointer, candidate: candidate.sourcePointer }
     });
@@ -204,12 +229,28 @@ function compareEnums(baseline: NormalizedSchema, candidate: NormalizedSchema, c
 
 interface CompareContext {
   operation: string;
-  location: 'request' | 'response';
+  location: 'path' | 'query' | 'header' | 'request' | 'response';
   jsonPath: string;
 }
 
 function compareSchemas(baseline: NormalizedSchema, candidate: NormalizedSchema, context: CompareContext): ApiChange[] {
   const changes: ApiChange[] = [];
+  const unsupported = [...new Set([...baseline.unsupportedConstructs, ...candidate.unsupportedConstructs])];
+  if (unsupported.length) {
+    changes.push({
+      id: changeId([context.operation, context.jsonPath, 'UNSUPPORTED_CHANGE', unsupported]),
+      code: 'UNSUPPORTED_CHANGE',
+      breaking: true,
+      operation: context.operation,
+      location: context.location,
+      jsonPath: context.jsonPath,
+      before: baseline.unsupportedConstructs,
+      after: candidate.unsupportedConstructs,
+      rationale: `Schema constructs outside the MVP semantic subset require manual review: ${unsupported.join(', ')}.`,
+      sourcePointers: { baseline: baseline.sourcePointer, candidate: candidate.sourcePointer }
+    });
+    return changes;
+  }
   if (baseline.type && candidate.type && baseline.type !== candidate.type) {
     changes.push({
       id: changeId([context.operation, context.jsonPath, 'PROPERTY_TYPE_CHANGED', baseline.type, candidate.type]),
@@ -225,9 +266,29 @@ function compareSchemas(baseline: NormalizedSchema, candidate: NormalizedSchema,
       const oldProp = baseline.properties.get(name);
       changes.push({
         id: changeId([context.operation, context.jsonPath, 'REQUIRED_PROPERTY_REMOVED', name]),
-        code: 'REQUIRED_PROPERTY_REMOVED', breaking: true, operation: context.operation, location: context.location,
-        jsonPath: `${context.jsonPath}.${name}`, before: oldProp?.type, rationale: `Required property ${name} was removed.`,
+        code: 'REQUIRED_PROPERTY_REMOVED', breaking: context.location === 'response', operation: context.operation, location: context.location,
+        jsonPath: `${context.jsonPath}.${name}`, before: oldProp?.type, rationale: context.location === 'response'
+          ? `Required response property ${name} was removed.`
+          : `Required request property ${name} was removed; existing callers remain valid but server-side behavior should be reviewed.`,
         sourcePointers: { baseline: oldProp?.sourcePointer ?? baseline.sourcePointer, candidate: candidate.sourcePointer }
+      });
+    } else if (!candidate.required.has(name)) {
+      const oldProp = baseline.properties.get(name);
+      const nextProp = candidate.properties.get(name);
+      changes.push({
+        id: changeId([context.operation, context.jsonPath, 'REQUIRED_PROPERTY_BECAME_OPTIONAL', name]),
+        code: 'REQUIRED_PROPERTY_BECAME_OPTIONAL',
+        breaking: context.location === 'response',
+        operation: context.operation,
+        location: context.location,
+        jsonPath: `${context.jsonPath}.${name}`,
+        rationale: context.location === 'response'
+          ? `Required response property ${name} became optional, so consumers can no longer assume it is present.`
+          : `Required request/input property ${name} became optional and is backward compatible for existing callers.`,
+        sourcePointers: {
+          baseline: oldProp?.sourcePointer ?? baseline.sourcePointer,
+          candidate: nextProp?.sourcePointer ?? candidate.sourcePointer
+        }
       });
     }
   }
@@ -238,11 +299,11 @@ function compareSchemas(baseline: NormalizedSchema, candidate: NormalizedSchema,
       changes.push({
         id: changeId([context.operation, context.jsonPath, newlyRequired ? 'PROPERTY_BECAME_REQUIRED' : 'OPTIONAL_PROPERTY_ADDED', name]),
         code: newlyRequired ? 'PROPERTY_BECAME_REQUIRED' : 'OPTIONAL_PROPERTY_ADDED',
-        breaking: newlyRequired && context.location === 'request', operation: context.operation, location: context.location,
+        breaking: newlyRequired && context.location !== 'response', operation: context.operation, location: context.location,
         jsonPath: `${context.jsonPath}.${name}`, after: candidateProp.type,
         rationale: newlyRequired
-          ? (context.location === 'request'
-            ? `New required request property ${name} may break existing callers.`
+          ? (context.location !== 'response'
+            ? `New required request/input property ${name} may break existing callers.`
             : `New required response property ${name} adds output and is normally backward compatible for consumers.`)
           : `Optional property ${name} was added and is backward compatible.`,
         sourcePointers: { candidate: candidateProp.sourcePointer }
@@ -252,9 +313,9 @@ function compareSchemas(baseline: NormalizedSchema, candidate: NormalizedSchema,
     if (!baseline.required.has(name) && candidate.required.has(name)) {
       changes.push({
         id: changeId([context.operation, context.jsonPath, 'PROPERTY_BECAME_REQUIRED', name]),
-        code: 'PROPERTY_BECAME_REQUIRED', breaking: context.location === 'request', operation: context.operation, location: context.location,
-        jsonPath: `${context.jsonPath}.${name}`, rationale: context.location === 'request'
-          ? `Request property ${name} changed from optional to required.`
+        code: 'PROPERTY_BECAME_REQUIRED', breaking: context.location !== 'response', operation: context.operation, location: context.location,
+        jsonPath: `${context.jsonPath}.${name}`, rationale: context.location !== 'response'
+          ? `Request/input property ${name} changed from optional to required.`
           : `Response property ${name} changed from optional to required; this does not remove information from consumers.`,
         sourcePointers: { baseline: baselineProp.sourcePointer, candidate: candidateProp.sourcePointer }
       });
@@ -292,21 +353,65 @@ export function diffOpenApi(baselineDocument: JsonObject, candidateDocument: Jso
           operation: key, location: oldParameter.location, jsonPath: `${oldParameter.location}.${oldParameter.name}`,
           rationale: `Parameter ${oldParameter.name} was removed.`, sourcePointers: { baseline: oldParameter.sourcePointer }
         });
-      } else if (!oldParameter.required && nextParameter.required) {
-        changes.push({
-          id: changeId([key, parameterKey, 'PARAMETER_BECAME_REQUIRED']), code: 'PARAMETER_BECAME_REQUIRED', breaking: true,
-          operation: key, location: oldParameter.location, jsonPath: `${oldParameter.location}.${oldParameter.name}`,
-          rationale: `Parameter ${oldParameter.name} became required.`,
-          sourcePointers: { baseline: oldParameter.sourcePointer, candidate: nextParameter.sourcePointer }
-        });
+      } else {
+        if (!oldParameter.required && nextParameter.required) {
+          changes.push({
+            id: changeId([key, parameterKey, 'PARAMETER_BECAME_REQUIRED']), code: 'PARAMETER_BECAME_REQUIRED', breaking: true,
+            operation: key, location: oldParameter.location, jsonPath: `${oldParameter.location}.${oldParameter.name}`,
+            rationale: `Parameter ${oldParameter.name} became required.`,
+            sourcePointers: { baseline: oldParameter.sourcePointer, candidate: nextParameter.sourcePointer }
+          });
+        }
+        changes.push(...compareSchemas(oldParameter.schema, nextParameter.schema, {
+          operation: key,
+          location: oldParameter.location,
+          jsonPath: `$parameter.${oldParameter.location}.${oldParameter.name}`
+        }));
       }
+    }
+    for (const [parameterKey, nextParameter] of nextOperation.parameters) {
+      if (oldOperation.parameters.has(parameterKey) || !nextParameter.required) continue;
+      changes.push({
+        id: changeId([key, parameterKey, 'PARAMETER_BECAME_REQUIRED', 'added']),
+        code: 'PARAMETER_BECAME_REQUIRED',
+        breaking: true,
+        operation: key,
+        location: nextParameter.location,
+        jsonPath: `${nextParameter.location}.${nextParameter.name}`,
+        rationale: `New required parameter ${nextParameter.name} was added.`,
+        sourcePointers: { candidate: nextParameter.sourcePointer }
+      });
     }
     if (oldOperation.requestSchema && nextOperation.requestSchema) {
       changes.push(...compareSchemas(oldOperation.requestSchema, nextOperation.requestSchema, { operation: key, location: 'request', jsonPath: '$request' }));
+    } else if (!oldOperation.requestSchema && nextOperation.requestSchema && nextOperation.requestRequired) {
+      changes.push({
+        id: changeId([key, 'REQUEST_BODY_BECAME_REQUIRED']),
+        code: 'REQUEST_BODY_BECAME_REQUIRED',
+        breaking: true,
+        operation: key,
+        location: 'request',
+        jsonPath: '$request',
+        rationale: 'A new required request body was added and may break existing callers.',
+        sourcePointers: { candidate: nextOperation.requestSchema.sourcePointer }
+      });
     }
     const oldResponse = preferredResponse(oldOperation);
     const nextResponse = preferredResponse(nextOperation);
-    if (oldResponse && nextResponse) changes.push(...compareSchemas(oldResponse, nextResponse, { operation: key, location: 'response', jsonPath: '$response' }));
+    if (oldResponse && nextResponse) {
+      changes.push(...compareSchemas(oldResponse, nextResponse, { operation: key, location: 'response', jsonPath: '$response' }));
+    } else if (oldResponse && !nextResponse) {
+      changes.push({
+        id: changeId([key, 'RESPONSE_SCHEMA_REMOVED']),
+        code: 'RESPONSE_SCHEMA_REMOVED',
+        breaking: true,
+        operation: key,
+        location: 'response',
+        jsonPath: '$response',
+        rationale: 'The operation no longer declares a response schema for its preferred success response.',
+        sourcePointers: { baseline: oldResponse.sourcePointer }
+      });
+    }
   }
   return changes.sort((a, b) => `${a.operation}:${a.jsonPath}:${a.code}`.localeCompare(`${b.operation}:${b.jsonPath}:${b.code}`));
 }

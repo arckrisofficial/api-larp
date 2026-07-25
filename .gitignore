@@ -10,3 +10,12 @@ src/widgets/.next/
 .DS_Store
 coverage/
 .nitrostudio/
+
+# Runtime-generated assessments, evidence snapshots, scopes and fix plans
+.apiguard/
+npmci.exit
+npmci.log
+ts_err.txt
+ts_errors.txt
+
+*.tsbuildinfo

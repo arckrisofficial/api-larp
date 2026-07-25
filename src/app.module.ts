@@ -4,7 +4,7 @@ import { ApiGuardModule } from './modules/apiguard/apiguard.module.js';
 @McpApp({
   module: AppModule,
   server: {
-    name: 'api-larp',
+    name: 'apiguard',
     version: '1.0.0'
   },
   logging: {

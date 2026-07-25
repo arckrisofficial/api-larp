@@ -1,4 +1,5 @@
 import { Injectable } from '@nitrostack/core';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { EvidenceSnapshotV2 } from '../../domain/evidence-snapshot.js';
@@ -6,6 +7,7 @@ import { sha256 } from '../../domain/hash.js';
 import type { ApiChange, EvidenceItem } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 import type { EvidenceDiscoveryResult, EvidenceProvider } from './evidence.provider.js';
+import { queriesForChanges } from './evidence.provider.js';
 import { EvidenceSnapshotSchema, type EvidenceSnapshot } from './evidence.schemas.js';
 
 @Injectable({ deps: [ApiGuardConfig] })
@@ -29,6 +31,44 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
     baselineSpecHash = '',
     candidateSpecHash = ''
   ): Promise<{ result: EvidenceDiscoveryResult; snapshot: EvidenceSnapshotV2 }> {
+    const fixturePath = path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios', scenarioId, 'evidence.snapshot.json');
+    if (!existsSync(fixturePath)) {
+      const queries = queriesForChanges(changes);
+      const limitations = [
+        `No bundled evidence snapshot exists for contract pair ${scenarioId}.`,
+        'The deterministic contract diff is available, but consumer impact remains incomplete until live GitHub evidence or a generated snapshot is supplied.'
+      ];
+      const snapshot: EvidenceSnapshotV2 = {
+        schemaVersion: 2,
+        snapshotId: `snap_empty_${scenarioId}_${sha256([baselineSpecHash, candidateSpecHash, queries]).slice(0, 10)}`,
+        scenarioId,
+        origin: 'FIXTURE',
+        baselineSpecHash,
+        candidateSpecHash,
+        repositoryScopeVersion: 0,
+        queryPlanHash: sha256(queries),
+        generatedAt: new Date().toISOString(),
+        repositoriesExpected: [],
+        repositoriesChecked: [],
+        repositoriesFailed: [],
+        limitations,
+        queries: queries.map((query) => ({
+          queryId: query.id,
+          query: query.query,
+          generatedFromChangeIds: query.changeIds
+        })),
+        results: []
+      };
+      return {
+        snapshot,
+        result: {
+          items: [],
+          sourceMode: 'snapshot',
+          limitations
+        }
+      };
+    }
+
     const rawSnapshot = await this.loadSnapshot(scenarioId);
     const queryMap = new Map(rawSnapshot.queries.map((query) => [query.queryId, query] as const));
     const validChangeIds = new Set(changes.map((change) => change.id));
@@ -57,11 +97,20 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
       };
     });
 
-    const repoMap = new Map<string, { owner: string; name: string; branch: string; commitSha: string }>();
-    for (const item of items) {
-      const [owner, name] = item.repository.split('/');
-      repoMap.set(item.repository, { owner: owner || '', name: name || item.repository, branch: item.branch, commitSha: item.commitSha });
-    }
+    const expectedRepositories = rawSnapshot.repositories.map((repository) => ({
+      owner: repository.owner,
+      name: repository.name,
+      branch: repository.defaultBranch,
+      commitSha: repository.commitSha
+    }));
+    const checkedRepositories = expectedRepositories.map((repository) => `${repository.owner}/${repository.name}`);
+
+    const limitations = [
+      rawSnapshot.origin === 'fixture'
+        ? 'The bundled offline snapshot is derived from demonstration consumer fixtures. Run npm run snapshot:refresh during development, or enable live GitHub mode for configured repositories.'
+        : 'Evidence was captured from the configured GitHub repository scope and pinned commits.',
+      'Evidence is limited to the configured repository scope and pinned snapshot commits.'
+    ];
 
     const snapshotV2: EvidenceSnapshotV2 = {
       schemaVersion: 2,
@@ -73,9 +122,10 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
       repositoryScopeVersion: 0,
       queryPlanHash: sha256(rawSnapshot.queries),
       generatedAt: rawSnapshot.generatedAt,
-      repositoriesExpected: Array.from(repoMap.values()),
-      repositoriesChecked: Array.from(repoMap.keys()),
+      repositoriesExpected: expectedRepositories,
+      repositoriesChecked: checkedRepositories,
       repositoriesFailed: [],
+      limitations,
       queries: rawSnapshot.queries.map((q) => ({ queryId: q.queryId, query: q.query, generatedFromChangeIds: q.generatedFromChangeIds })),
       results: rawSnapshot.results.map((r) => ({
         evidenceId: r.evidenceId,
@@ -95,12 +145,7 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
     const result: EvidenceDiscoveryResult = {
       items,
       sourceMode: 'snapshot',
-      limitations: [
-        rawSnapshot.origin === 'fixture'
-          ? 'The bundled offline snapshot is derived from demonstration consumer fixtures. Run refresh_repository_evidence with USE_LIVE_GITHUB=true to generate live provenance.'
-          : 'Evidence was captured from the configured GitHub repository scope and pinned commits.',
-        'Evidence is limited to the configured repository scope and pinned snapshot commits.'
-      ]
+      limitations
     };
 
     return { result, snapshot: snapshotV2 };

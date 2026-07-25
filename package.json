@@ -1,5 +1,5 @@
 {
-  "name": "api-larp",
+  "name": "apiguard",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -19,7 +19,7 @@
     "test:offline": "node -e \"require('fs').rmSync('.offline-dist',{recursive:true,force:true})\" && tsc -p tsconfig.offline.json && node --test .offline-dist/tests/offline/*.test.js",
     "typecheck": "tsc --noEmit",
     "typecheck:vm": "tsc -p tsconfig.vm.json --noEmit",
-    "check": "npm run typecheck && npm test && npm run widget:typecheck && npm run build",
+    "check": "npm run ci",
     "demo": "cross-env USE_LIVE_GITHUB=false USE_LLM=false DEMO_SCENARIO=risky nitrostack-cli dev",
     "demo:llm": "cross-env USE_LIVE_GITHUB=false USE_LLM=true DEMO_SCENARIO=risky nitrostack-cli dev",
     "demo:live": "cross-env USE_LIVE_GITHUB=true USE_LLM=true DEMO_SCENARIO=risky nitrostack-cli dev",
@@ -28,9 +28,12 @@
     "install:all": "npm install",
     "widget:install": "npm --prefix src/widgets install",
     "widget:typecheck": "npm --prefix src/widgets run typecheck",
-    "postinstall": "npm --prefix src/widgets install --include=dev",
+    "postinstall": "npm --prefix src/widgets ci --include=dev",
     "verify:offline": "npm run test:offline && node scripts/offline-verification.mjs",
-    "typecheck:widget-vm": "tsc -p tsconfig.widget-vm.json --noEmit"
+    "typecheck:widget-vm": "tsc -p tsconfig.widget-vm.json --noEmit",
+    "test:ci": "npm run typecheck && npm test && npm run widget:typecheck",
+    "test:e2e": "tsx scripts/test-e2e.ts",
+    "ci": "npm run test:ci && npm run build"
   },
   "dependencies": {
     "@nitrostack/core": "^1.0.14",

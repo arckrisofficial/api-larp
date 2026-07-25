@@ -9,6 +9,6 @@ async function bootstrap(): Promise<void> {
 
 bootstrap().catch((error: unknown) => {
   const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  process.stderr.write(`[api-larp] fatal bootstrap error: ${message}\n`);
+  process.stderr.write(`[apiguard] fatal bootstrap error: ${message}\n`);
   process.exitCode = 1;
 });

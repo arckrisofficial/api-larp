@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { Injectable } from '@nitrostack/core';
 import type { EvidenceSnapshotV2 } from '../../domain/evidence-snapshot.js';
@@ -57,7 +57,6 @@ export class EvidenceSnapshotRepository {
     try {
       const snapshotsDir = resolve(process.cwd(), '.apiguard', 'snapshots');
       if (existsSync(snapshotsDir)) {
-        const { readdirSync } = require('node:fs');
         const files = readdirSync(snapshotsDir);
         for (const file of files) {
           if (file.endsWith('.json')) {

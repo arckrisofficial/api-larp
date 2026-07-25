@@ -1,5 +1,5 @@
 {
-  "id": "asm_offline_3e9ca7b8-717a-4cdd-8c48-7f8429e8dea9",
+  "id": "asm_offline_11290c93-6755-4705-9f3c-b3dd2afdbd61",
   "scenarioId": "risky",
   "analysisStatus": "COMPLETE",
   "decisionStatus": "BLOCKED_PENDING_MIGRATION",
@@ -49,7 +49,7 @@
       "location": "response",
       "jsonPath": "$response.name",
       "before": "string",
-      "rationale": "Required property name was removed.",
+      "rationale": "Required response property name was removed.",
       "sourcePointers": {
         "baseline": "/paths/~1api~1user/get/responses/200/content/application~1json/schema/properties/name",
         "candidate": "/paths/~1api~1user/get/responses/200/content/application~1json/schema"
@@ -202,15 +202,15 @@
     "NitroStack runtime registration and widget rendering require installed official packages."
   ],
   "durationMs": 0,
-  "createdAt": "2026-07-25T14:07:28.412Z",
-  "updatedAt": "2026-07-25T14:07:28.412Z",
+  "createdAt": "2026-07-25T23:23:06.238Z",
+  "updatedAt": "2026-07-25T23:23:06.238Z",
   "version": 2,
   "decision": {
     "decision": "BLOCKED_PENDING_MIGRATION",
     "reason": "Verified consumer evidence still relies on the old contract.",
     "actorId": "offline-verifier",
     "actorDisplayName": "Offline Verifier",
-    "decidedAt": "2026-07-25T14:07:28.412Z",
-    "idempotencyKey": "asm_offline_3e9ca7b8-717a-4cdd-8c48-7f8429e8dea9:block:v1"
+    "decidedAt": "2026-07-25T23:23:06.238Z",
+    "idempotencyKey": "asm_offline_11290c93-6755-4705-9f3c-b3dd2afdbd61:block:v1"
   }
 }

@@ -7,6 +7,7 @@ import { ApiGuardConfig } from './config.service.js';
 import type { EvidenceDiscoveryResult, EvidenceProvider } from './evidence.provider.js';
 import { queriesForChanges } from './evidence.provider.js';
 import { RepositoryScopeRepository } from './repository-scope.repository.js';
+import { RepositoryScopeService } from './repository-scope.service.js';
 
 interface CachedValue {
   expiresAt: number;
@@ -14,13 +15,14 @@ interface CachedValue {
   snapshot: EvidenceSnapshotV2;
 }
 
-@Injectable({ deps: [ApiGuardConfig, RepositoryScopeRepository] })
+@Injectable({ deps: [ApiGuardConfig, RepositoryScopeRepository, RepositoryScopeService] })
 export class GitHubEvidenceProvider implements EvidenceProvider {
   private readonly cache = new Map<string, CachedValue>();
 
   constructor(
     private readonly config: ApiGuardConfig,
-    private readonly scopeRepository: RepositoryScopeRepository
+    private readonly scopeRepository: RepositoryScopeRepository,
+    private readonly scopeService: RepositoryScopeService
   ) {}
 
   async discover(scenarioId: string, changes: ApiChange[]): Promise<EvidenceDiscoveryResult> {
@@ -37,9 +39,10 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
   ): Promise<{ result: EvidenceDiscoveryResult; snapshot: EvidenceSnapshotV2 }> {
     if (!this.config.githubToken) throw new Error('GITHUB_TOKEN is required when USE_LIVE_GITHUB=true.');
 
+    await this.scopeService.bootstrapIfEmpty();
     const activeRepos = this.scopeRepository.listActive();
     if (!activeRepos.length) {
-      throw new Error('No active repositories in scope. Use manage_repository_scope to add repositories.');
+      throw new Error('No active repositories are configured. Set DEMO_GITHUB_OWNER and DEMO_GITHUB_REPOSITORIES.');
     }
 
     const queries = queriesForChanges(changes);
@@ -110,6 +113,10 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
 
               const source = await this.fetchSource(request, managedRepo.owner, managedRepo.name, filePath, commitSha);
               const excerpt = excerptFor(source, query.query, this.config.maxSnippetChars);
+              // GitHub code search is eventually consistent and searches the indexed branch,
+              // while APIGuard reads the exact pinned commit. Never turn a stale search result
+              // into fabricated evidence from unrelated lines at the pinned commit.
+              if (!excerpt) continue;
               const snippetHash = sha256(excerpt.snippet);
               const evidenceId = `live_${sha256([repoSlug, query.id, filePath, index, commitSha]).slice(0, 12)}`;
 
@@ -158,6 +165,15 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
     const now = new Date().toISOString();
     const snapshotId = `snap_${randomUUID().slice(0, 12)}`;
 
+    const limitations = [
+      'Live GitHub code search is rate-limited and restricted to active scope repositories.',
+      `Repositories checked: ${repositoriesChecked.length}/${activeRepos.length}.`,
+      `GitHub requests used: ${requestCount}/${this.config.githubMaxRequests}.`
+    ];
+    if (repositoriesFailed.length > 0) {
+      limitations.push(`Failed repositories (${repositoriesFailed.length}): ${repositoriesFailed.map((f) => f.repository).join(', ')}.`);
+    }
+
     const snapshot: EvidenceSnapshotV2 = {
       schemaVersion: 2,
       snapshotId,
@@ -171,18 +187,10 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
       repositoriesExpected: expectedRepos,
       repositoriesChecked,
       repositoriesFailed,
+      limitations,
       queries: queries.map((q) => ({ queryId: q.id, query: q.query, generatedFromChangeIds: q.changeIds })),
       results: snapshotResults
     };
-
-    const limitations = [
-      'Live GitHub code search is rate-limited and restricted to active scope repositories.',
-      `Repositories checked: ${repositoriesChecked.length}/${activeRepos.length}.`,
-      `GitHub requests used: ${requestCount}/${this.config.githubMaxRequests}.`
-    ];
-    if (repositoriesFailed.length > 0) {
-      limitations.push(`Failed repositories (${repositoriesFailed.length}): ${repositoriesFailed.map((f) => f.repository).join(', ')}.`);
-    }
 
     const result: EvidenceDiscoveryResult = { items, sourceMode: 'live', limitations };
 
@@ -215,13 +223,13 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response = await fetch(`https://api.github.com${endpoint}`, {
+      const response = await fetch(`${this.config.githubApiBaseUrl}${endpoint}`, {
         signal: controller.signal,
         headers: {
           Authorization: `Bearer ${this.config.githubToken}`,
           Accept: accept,
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'api-larp-nitrostack-hackathon'
+          'X-GitHub-Api-Version': this.config.githubApiVersion,
+          'User-Agent': 'apiguard-nitrostack-hackathon'
         }
       });
       
@@ -233,7 +241,7 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
            const resetTime = reset ? new Date(Number(reset) * 1000).toLocaleTimeString() : 'unknown';
            throw new Error(`GitHub rate limit exhausted. Resets at ${resetTime}.`);
         }
-        throw new Error(`GitHub API ${response.status}: ${await response.text()}`);
+        throw new Error(`GitHub API ${response.status}: ${(await response.text()).slice(0, 500)}`);
       }
       return await response.json() as Record<string, unknown>;
     } finally {
@@ -242,10 +250,11 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
   }
 }
 
-function excerptFor(source: string, query: string, maxChars: number): { snippet: string; lineStart: number; lineEnd: number } {
+export function excerptFor(source: string, query: string, maxChars: number): { snippet: string; lineStart: number; lineEnd: number } | undefined {
   const lines = source.split(/\r?\n/);
   const matchedIndex = lines.findIndex((line) => line.toLowerCase().includes(query.toLowerCase()));
-  const index = matchedIndex >= 0 ? matchedIndex : 0;
+  if (matchedIndex < 0) return undefined;
+  const index = matchedIndex;
   const start = Math.max(0, index - 1);
   const end = Math.min(lines.length, index + 2);
   const snippet = lines.slice(start, end).join('\n').slice(0, maxChars);

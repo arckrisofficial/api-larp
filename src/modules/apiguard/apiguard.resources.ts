@@ -1,28 +1,31 @@
 import { ExecutionContext, Injectable, ResourceDecorator as Resource } from '@nitrostack/core';
 import { AssessmentService } from './assessment.service.js';
 import { EvidenceService } from './evidence.service.js';
-import { RepositoryScopeRepository } from './repository-scope.repository.js';
+import { FixService } from './fix.service.js';
 import { SpecRepository } from './spec.repository.js';
 
 function jsonResource(uri: string, data: unknown) {
   return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] };
 }
 
-@Injectable({
-  deps: [
-    SpecRepository,
-    AssessmentService,
-    RepositoryScopeRepository,
-    EvidenceService
-  ]
-})
+@Injectable({ deps: [SpecRepository, AssessmentService, EvidenceService, FixService] })
 export class ApiGuardResources {
   constructor(
     private readonly specs: SpecRepository,
     private readonly assessments: AssessmentService,
-    private readonly scopeRepository: RepositoryScopeRepository,
-    private readonly evidenceService: EvidenceService
+    private readonly evidenceService: EvidenceService,
+    private readonly fixService: FixService
   ) {}
+
+  @Resource({
+    uri: 'apiguard://scenarios',
+    name: 'APIGuard contract-pair catalogue',
+    description: 'List bundled fixture and dynamically registered contract-pair identifiers.',
+    mimeType: 'application/json'
+  })
+  async scenarios(uri: string, _ctx: ExecutionContext) {
+    return jsonResource(uri, { scenarios: await this.specs.listScenarios() });
+  }
 
   @Resource({ uri: 'apiguard://scenarios/{scenarioId}/specs/baseline', name: 'Baseline OpenAPI specification', description: 'The currently released OpenAPI contract.', mimeType: 'application/json' })
   async baseline(uri: string, _ctx: ExecutionContext) {
@@ -39,26 +42,16 @@ export class ApiGuardResources {
   }
 
   @Resource({ uri: 'apiguard://assessments/{assessmentId}', name: 'APIGuard assessment', description: 'Read the latest analysis and human decision state for an assessment.', mimeType: 'application/json' })
-  async assessment(uri: string, _ctx: ExecutionContext) {
+  assessment(uri: string, _ctx: ExecutionContext) {
     const match = /^apiguard:\/\/assessments\/(.+)$/.exec(uri);
     if (!match?.[1]) throw new Error('Invalid assessment resource URI.');
     return jsonResource(uri, this.assessments.get(match[1]));
   }
 
   @Resource({
-    uri: 'apiguard://repository-scope',
-    name: 'Repository assessment scope',
-    description: 'Read the current versioned list of active and inactive consumer repositories in the impact assessment scope.',
-    mimeType: 'application/json'
-  })
-  repositoryScope(uri: string, _ctx: ExecutionContext) {
-    return jsonResource(uri, this.scopeRepository.getScope());
-  }
-
-  @Resource({
     uri: 'apiguard://evidence-snapshots/{snapshotId}',
-    name: 'Evidence Snapshot V2',
-    description: 'Read an immutable, provenance-tagged consumer code evidence snapshot.',
+    name: 'Evidence snapshot',
+    description: 'Read a versioned, provenance-tagged consumer-code evidence snapshot.',
     mimeType: 'application/json'
   })
   evidenceSnapshot(uri: string, _ctx: ExecutionContext) {
@@ -67,5 +60,17 @@ export class ApiGuardResources {
     const snapshot = this.evidenceService.getSnapshot(match[1]);
     if (!snapshot) throw new Error(`Evidence snapshot ${match[1]} was not found.`);
     return jsonResource(uri, snapshot);
+  }
+
+  @Resource({
+    uri: 'apiguard://fix-plans/{fixPlanId}',
+    name: 'Consumer migration fix plan',
+    description: 'Read proposed source changes and any draft pull requests created from them.',
+    mimeType: 'application/json'
+  })
+  fixPlan(uri: string, _ctx: ExecutionContext) {
+    const match = /^apiguard:\/\/fix-plans\/(.+)$/.exec(uri);
+    if (!match?.[1]) throw new Error('Invalid fix-plan resource URI.');
+    return jsonResource(uri, this.fixService.get(match[1]));
   }
 }

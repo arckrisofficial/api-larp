@@ -9,3 +9,6 @@ dist
 .offline-dist
 verification
 *.log
+
+.apiguard
+*.tsbuildinfo

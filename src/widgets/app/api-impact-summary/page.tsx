@@ -11,10 +11,15 @@ type Assessment = {
   overallSeverity: 'HIGH' | 'MEDIUM' | 'LOW';
   sourceMode: string;
   classifierMode: string;
+  evidenceSnapshotId?: string;
+  repositoryCommits?: Record<string, string>;
+  repositoriesExpected?: string[];
+  repositoriesChecked?: string[];
+  coverageRatio?: number;
   durationMs: number;
   createdAt: string;
   changes: Array<{ id: string; code: string; breaking: boolean; operation: string; jsonPath?: string; rationale: string }>;
-  evidence: Array<{ id: string; repository: string; filePath: string; lineStart: number; classification: string; confidence: string; reasoning: string; commitSha: string }>;
+  evidence: Array<{ id: string; capturedAt?: string; repository: string; filePath: string; lineStart: number; classification: string; confidence: string; reasoning: string; commitSha: string }>;
   limitations: string[];
   decision?: { reason?: string; actorDisplayName: string; decidedAt: string };
 };
@@ -27,6 +32,15 @@ const PREVIEW_DATA: Assessment = {
   overallSeverity: 'HIGH',
   sourceMode: 'snapshot',
   classifierMode: 'deterministic-fallback',
+  evidenceSnapshotId: 'snap_fixture_risky',
+  repositoryCommits: {
+    'bundled-fixtures/react-consumer': 'b71d00401b3a',
+    'bundled-fixtures/python-consumer': '3b1be8e5a705',
+    'bundled-fixtures/go-consumer': 'a87772a3a9f0'
+  },
+  repositoriesExpected: ['bundled-fixtures/react-consumer', 'bundled-fixtures/python-consumer', 'bundled-fixtures/go-consumer'],
+  repositoriesChecked: ['bundled-fixtures/react-consumer', 'bundled-fixtures/python-consumer', 'bundled-fixtures/go-consumer'],
+  coverageRatio: 1,
   durationMs: 2,
   createdAt: new Date().toISOString(),
   changes: [
@@ -324,6 +338,8 @@ export default function ApiImpactSummary() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const isPreviewMode = !isReady;
+  const canApprove = data?.analysisStatus === 'COMPLETE';
+  const canBlock = reason.trim().length >= 3;
 
   useEffect(() => {
     if (isReady) {
@@ -397,6 +413,22 @@ export default function ApiImpactSummary() {
       </div>
 
       <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Evidence provenance</h2>
+        <div style={styles.changeCard(false)}>
+          <div style={styles.changeCode}>{data.sourceMode.toUpperCase()} · {data.evidenceSnapshotId ?? 'snapshot not persisted'}</div>
+          <div style={styles.changeOperation}>
+            Scope coverage: {data.repositoriesChecked?.length ?? 0}/{data.repositoriesExpected?.length ?? 0}
+            {typeof data.coverageRatio === 'number' ? ` (${Math.round(data.coverageRatio * 100)}%)` : ''}
+          </div>
+          {Object.entries(data.repositoryCommits ?? {}).map(([repository, commit]) => (
+            <p key={repository} style={styles.changeRationale}>
+              {repository} @ {commit.slice(0, 12)}
+            </p>
+          ))}
+        </div>
+      </section>
+
+      <section style={styles.section}>
         <h2 style={styles.sectionTitle}>Contract changes</h2>
         <div>
           {data.changes.map((change) => (
@@ -447,22 +479,22 @@ export default function ApiImpactSummary() {
           <label style={styles.label}>Block reason</label>
           <textarea
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(e: { target: { value: string } }) => setReason(e.target.value)}
             rows={2}
             style={styles.textarea}
           />
           <div style={styles.buttonRow}>
             <button
-              disabled={busy || isPreviewMode}
+              disabled={busy || isPreviewMode || !canApprove}
               onClick={() => callDecision('APPROVE')}
-              style={styles.button('primary', busy || isPreviewMode)}
+              style={styles.button('primary', busy || isPreviewMode || !canApprove)}
             >
               Approve release
             </button>
             <button
-              disabled={busy || isPreviewMode}
+              disabled={busy || isPreviewMode || !canBlock}
               onClick={() => callDecision('BLOCK')}
-              style={styles.button('danger', busy || isPreviewMode)}
+              style={styles.button('danger', busy || isPreviewMode || !canBlock)}
             >
               Block pending migration
             </button>
@@ -470,6 +502,11 @@ export default function ApiImpactSummary() {
           {isPreviewMode && (
             <div style={styles.disabledHint}>
               Actions disabled in preview. Open via Studio to interact.
+            </div>
+          )}
+          {!isPreviewMode && !canApprove && (
+            <div style={styles.disabledHint}>
+              Approval is disabled for {data.analysisStatus} assessments. Resolve missing evidence or warnings first; blocking remains available.
             </div>
           )}
           {error && (

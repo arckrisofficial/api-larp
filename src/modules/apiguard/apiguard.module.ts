@@ -8,10 +8,14 @@ import { SnapshotEvidenceProvider } from './snapshot-evidence.provider.js';
 import { GitHubEvidenceProvider } from './github-evidence.provider.js';
 import { EvidenceSnapshotRepository } from './evidence-snapshot.repository.js';
 import { RiskService } from './risk.service.js';
+import { ModelGateway } from './model.gateway.js';
 import { AssessmentRepository } from './assessment.repository.js';
 import { AssessmentService } from './assessment.service.js';
 import { RepositoryScopeRepository } from './repository-scope.repository.js';
 import { RepositoryScopeService } from './repository-scope.service.js';
+import { GitHubClient } from './github.client.js';
+import { FixPlanRepository } from './fix-plan.repository.js';
+import { FixService } from './fix.service.js';
 import { ApiGuardTools } from './apiguard.tools.js';
 import { ApiGuardResources } from './apiguard.resources.js';
 import { ApiGuardPrompts } from './apiguard.prompts.js';
@@ -19,7 +23,7 @@ import { SystemLiveness, SystemReadiness } from './system.health.js';
 
 @Module({
   name: 'apiguard',
-  description: 'API contract impact assessment and governed release-decision capabilities.',
+  description: 'MCP-native API contract impact assessment, consumer migration planning, and human-governed release decisions.',
   controllers: [ApiGuardTools, ApiGuardResources, ApiGuardPrompts],
   providers: [
     ApiGuardConfig,
@@ -30,14 +34,18 @@ import { SystemLiveness, SystemReadiness } from './system.health.js';
     GitHubEvidenceProvider,
     EvidenceSnapshotRepository,
     EvidenceService,
+    ModelGateway,
     RiskService,
     AssessmentRepository,
     AssessmentService,
     RepositoryScopeRepository,
     RepositoryScopeService,
+    GitHubClient,
+    FixPlanRepository,
+    FixService,
     SystemLiveness,
     SystemReadiness
   ],
-  exports: [AssessmentService, ContractService, EvidenceService]
+  exports: [AssessmentService, ContractService, EvidenceService, FixService]
 })
 export class ApiGuardModule {}

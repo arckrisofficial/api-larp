@@ -1,65 +1,94 @@
 import { Injectable } from '@nitrostack/core';
-import { computeSeverity, fallbackAssess } from '../../domain/deterministic-risk.js';
+import { computeSeverity, deterministicClassify, fallbackAssess } from '../../domain/deterministic-risk.js';
 import type { ApiChange, AssessedEvidence, EvidenceItem, MigrationAction } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
+import { ModelGateway } from './model.gateway.js';
 import { RISK_SYSTEM_PROMPT, riskUserPrompt } from './risk.prompt.js';
-import { AssessRiskOutputSchema, type AssessRiskOutput } from './risk.schemas.js';
+import { AssessRiskJsonSchema, AssessRiskOutputSchema, type AssessRiskOutput } from './risk.schemas.js';
 
 export interface RiskAssessmentResult {
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
-  classifierMode: 'llm' | 'deterministic-fallback' | 'hybrid-with-fallback';
+  classifierMode: 'llm' | 'deterministic-only' | 'deterministic-fallback' | 'hybrid-with-fallback';
+  modelProvider?: 'openai' | 'anthropic' | 'gemini';
+  modelName?: string;
   evidence: AssessedEvidence[];
   limitations: string[];
 }
 
-@Injectable({ deps: [ApiGuardConfig] })
+@Injectable({ deps: [ApiGuardConfig, ModelGateway] })
 export class RiskService {
-  constructor(private readonly config: ApiGuardConfig) {}
+  constructor(
+    private readonly config: ApiGuardConfig,
+    private readonly modelGateway: ModelGateway
+  ) {}
 
   async assess(changes: ApiChange[], evidence: EvidenceItem[]): Promise<RiskAssessmentResult> {
     const limitations: string[] = [];
     if (!evidence.length) {
       return {
-        severity: computeSeverity([]),
-        classifierMode: this.config.useLlm ? 'llm' : 'deterministic-fallback',
+        severity: changes.some((change) => change.breaking) ? 'MEDIUM' : 'LOW',
+        classifierMode: 'deterministic-fallback',
         evidence: [],
-        limitations: ['No consumer code evidence items were provided for risk assessment.']
+        limitations: [
+          changes.some((change) => change.breaking)
+            ? 'Breaking contract changes exist, but no consumer evidence was available. Impact requires manual review.'
+            : 'No consumer code evidence items were provided for risk assessment.'
+        ]
       };
     }
 
-    if (!this.config.useLlm) {
-      limitations.push('LLM classification is disabled; deterministic fallback was used for all evidence.');
+    const deterministic = new Map<string, AssessedEvidence>();
+    const ambiguous: EvidenceItem[] = [];
+    for (const item of evidence) {
+      const classified = deterministicClassify(item, changes);
+      if (classified) deterministic.set(item.id, classified);
+      else ambiguous.push(item);
+    }
+
+    if (!this.config.useLlm || ambiguous.length === 0) {
+      if (!this.config.useLlm && ambiguous.length > 0) {
+        limitations.push('LLM classification is disabled; deterministic fallback was used for ambiguous evidence.');
+      }
+      const output = evidence.map((item) => deterministic.get(item.id) ?? fallbackAssess(item, changes));
       return {
-        severity: computeSeverity(evidence.map((item) => fallbackAssess(item, changes))),
-        classifierMode: 'deterministic-fallback',
-        evidence: evidence.map((item) => fallbackAssess(item, changes)),
+        severity: computeSeverity(output),
+        classifierMode: ambiguous.length > 0 ? 'deterministic-fallback' : 'deterministic-only',
+        evidence: output,
         limitations
       };
     }
 
-    const cappedEvidence = evidence.slice(0, this.config.maxEvidenceItems);
-    if (evidence.length > this.config.maxEvidenceItems) {
-      limitations.push(`Evidence capped to ${this.config.maxEvidenceItems} items (out of ${evidence.length}) for LLM classification.`);
+    const capped = ambiguous.slice(0, this.config.maxEvidenceItems);
+    if (ambiguous.length > capped.length) {
+      limitations.push(`Ambiguous evidence capped to ${capped.length} items out of ${ambiguous.length}; remaining items require review.`);
     }
 
     try {
-      const rawOutput = await this.callModel(changes, cappedEvidence);
-      const reconciled = this.reconcile(changes, evidence, cappedEvidence, rawOutput);
+      const generated = await this.modelGateway.generateStructured({
+        taskName: 'apiguard_risk_assessment',
+        systemPrompt: RISK_SYSTEM_PROMPT,
+        userPrompt: riskUserPrompt(changes, capped),
+        jsonSchema: AssessRiskJsonSchema,
+        validate: (value) => AssessRiskOutputSchema.parse(value),
+        maxOutputTokens: 2200
+      });
+      const reconciled = this.reconcile(changes, evidence, deterministic, capped, generated.output);
       return {
         severity: computeSeverity(reconciled.evidence),
         classifierMode: reconciled.hadFallback ? 'hybrid-with-fallback' : 'llm',
+        modelProvider: generated.provider,
+        modelName: generated.model,
         evidence: reconciled.evidence,
-        limitations: [...limitations, ...rawOutput.limitations]
+        limitations: [...limitations, ...generated.output.limitations]
       };
-    } catch (err) {
-      const sanitizedMsg = String(err instanceof Error ? err.message : err)
-        .replace(/Bearer\s+[A-Za-z0-9_.-]+/gi, 'Bearer ***')
-        .slice(0, 160);
-      limitations.push(`The bounded LLM classifier was unavailable: ${sanitizedMsg}`);
+    } catch (error) {
+      const message = sanitizeError(error);
+      limitations.push(`The bounded LLM classifier was unavailable: ${message}`);
+      const output = evidence.map((item) => deterministic.get(item.id) ?? fallbackAssess(item, changes));
       return {
-        severity: computeSeverity(evidence.map((item) => fallbackAssess(item, changes))),
+        severity: computeSeverity(output),
         classifierMode: 'deterministic-fallback',
-        evidence: evidence.map((item) => fallbackAssess(item, changes)),
+        evidence: output,
         limitations
       };
     }
@@ -68,24 +97,31 @@ export class RiskService {
   private reconcile(
     changes: ApiChange[],
     allEvidence: EvidenceItem[],
-    cappedEvidence: EvidenceItem[],
+    deterministic: Map<string, AssessedEvidence>,
+    sentToModel: EvidenceItem[],
     output: AssessRiskOutput
   ): { evidence: AssessedEvidence[]; hadFallback: boolean } {
-    const modelMap = new Map(output.assessments.map((a) => [a.evidenceId, a]));
+    const sentIds = new Set(sentToModel.map((item) => item.id));
+    const modelMap = new Map(output.assessments.map((assessment) => [assessment.evidenceId, assessment]));
     let hadFallback = false;
 
-    const evidence: AssessedEvidence[] = allEvidence.map((item) => {
+    const evidence = allEvidence.map((item): AssessedEvidence => {
+      const deterministicResult = deterministic.get(item.id);
+      if (deterministicResult) return deterministicResult;
+
+      if (!sentIds.has(item.id)) {
+        hadFallback = true;
+        return fallbackAssess(item, changes);
+      }
+
       const modelAssessment = modelMap.get(item.id);
       if (!modelAssessment) {
         hadFallback = true;
         return fallbackAssess(item, changes);
       }
 
-      // Validate matchedChangeIds is a subset of linked change IDs
       const validChangeIds = new Set(item.generatedFromChangeIds);
       const matchedChangeIds = modelAssessment.matchedChangeIds.filter((id) => validChangeIds.has(id));
-
-      // Filter migration actions to ensure repository and filePath match evidence item (anti-hallucination)
       const migrationActions: MigrationAction[] = modelAssessment.migrationActions
         .filter((action) => action.repository === item.repository && action.filePath === item.filePath)
         .map((action) => ({
@@ -95,7 +131,21 @@ export class RiskService {
           filePath: item.filePath,
           lineNumber: action.lineNumber,
           relatedChangeIds: action.relatedChangeIds.filter((id) => validChangeIds.has(id))
-        }));
+        }))
+        .filter((action) => action.relatedChangeIds.length > 0);
+
+      const claimsImpact = modelAssessment.classification === 'CONFIRMED_IMPACT' || modelAssessment.classification === 'LIKELY_IMPACT';
+      if (claimsImpact && matchedChangeIds.length === 0) {
+        hadFallback = true;
+        return {
+          ...item,
+          classification: 'REVIEW_REQUIRED',
+          confidence: 'LOW',
+          matchedChangeIds: [],
+          reasoning: 'The model claimed impact without a valid deterministic contract-change link. Manual review is required.',
+          migrationActions: []
+        };
+      }
 
       return {
         ...item,
@@ -109,76 +159,11 @@ export class RiskService {
 
     return { evidence, hadFallback };
   }
+}
 
-  private async callModel(changes: ApiChange[], evidence: EvidenceItem[]): Promise<AssessRiskOutput> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.llmTimeoutMs);
-    try {
-      const raw =
-        this.config.llmProvider === 'anthropic' ? await this.callAnthropic(changes, evidence, controller.signal) :
-        this.config.llmProvider === 'gemini'    ? await this.callGemini(changes, evidence, controller.signal) :
-                                                  await this.callOpenAi(changes, evidence, controller.signal);
-      const parsed = JSON.parse(raw) as unknown;
-      return AssessRiskOutputSchema.parse(parsed);
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  private async callOpenAi(changes: ApiChange[], evidence: EvidenceItem[], signal: AbortSignal): Promise<string> {
-    if (!this.config.openAiKey) throw new Error('OPENAI_API_KEY is missing.');
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', signal,
-      headers: { Authorization: `Bearer ${this.config.openAiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.config.openAiModel, temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: RISK_SYSTEM_PROMPT },
-          { role: 'user', content: riskUserPrompt(changes, evidence) }
-        ]
-      })
-    });
-    if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0, 150)}`);
-    const payload = await response.json() as any;
-    const content = payload.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') throw new Error('OpenAI response contained no JSON text.');
-    return content;
-  }
-
-  private async callAnthropic(changes: ApiChange[], evidence: EvidenceItem[], signal: AbortSignal): Promise<string> {
-    if (!this.config.anthropicKey) throw new Error('ANTHROPIC_API_KEY is missing.');
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal,
-      headers: { 'x-api-key': this.config.anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.config.anthropicModel, max_tokens: 1800, temperature: 0, system: RISK_SYSTEM_PROMPT, messages: [{ role: 'user', content: riskUserPrompt(changes, evidence) }] })
-    });
-    if (!response.ok) throw new Error(`Anthropic ${response.status}: ${(await response.text()).slice(0, 150)}`);
-    const payload = await response.json() as any;
-    const content = payload.content?.find((item: any) => item.type === 'text')?.text;
-    if (typeof content !== 'string') throw new Error('Anthropic response contained no JSON text.');
-    return content;
-  }
-
-  private async callGemini(changes: ApiChange[], evidence: EvidenceItem[], signal: AbortSignal): Promise<string> {
-    if (!this.config.geminiKey) throw new Error('GEMINI_API_KEY is missing.');
-    const url = `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`;
-    const response = await fetch(url, {
-      method: 'POST', signal,
-      headers: { Authorization: `Bearer ${this.config.geminiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.config.geminiModel, temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: RISK_SYSTEM_PROMPT },
-          { role: 'user', content: riskUserPrompt(changes, evidence) }
-        ]
-      })
-    });
-    if (!response.ok) throw new Error(`Gemini ${response.status}: ${(await response.text()).slice(0, 150)}`);
-    const payload = await response.json() as any;
-    const content = payload.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') throw new Error('Gemini response contained no JSON text.');
-    return content;
-  }
+function sanitizeError(error: unknown): string {
+  return String(error instanceof Error ? error.message : error)
+    .replace(/Bearer\s+[A-Za-z0-9_.-]+/gi, 'Bearer ***')
+    .replace(/sk-[A-Za-z0-9_-]+/g, 'sk-***')
+    .slice(0, 220);
 }

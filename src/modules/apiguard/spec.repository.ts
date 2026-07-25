@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Injectable } from '@nitrostack/core';
 import type { ScenarioSpecs } from '../../domain/types.js';
@@ -47,4 +47,25 @@ export class SpecRepository {
     const scenario = await this.getScenario(scenarioId);
     return scenario[kind];
   }
+  async listScenarios(): Promise<Array<{ id: string; source: 'fixture' | 'registered' }>> {
+    const result = new Map<string, { id: string; source: 'fixture' | 'registered' }>();
+    const roots: Array<{ dir: string; source: 'fixture' | 'registered' }> = [
+      { dir: path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios'), source: 'fixture' },
+      { dir: path.resolve(process.cwd(), '.apiguard', 'scenarios'), source: 'registered' }
+    ];
+    for (const root of roots) {
+      try {
+        const entries = await readdir(root.dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && /^[a-z0-9_-]+$/i.test(entry.name)) {
+            result.set(entry.name, { id: entry.name, source: root.source });
+          }
+        }
+      } catch {
+        // Missing optional scenario roots are valid.
+      }
+    }
+    return [...result.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
 }

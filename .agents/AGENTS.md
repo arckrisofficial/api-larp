@@ -1,4 +1,4 @@
-# Agent Rules for api-larp
+# Agent Rules for APIGuard
 
 ## Hackathon / Feature Intent Interpretation
 

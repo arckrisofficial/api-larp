@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Injectable } from '@nitrostack/core';
 import { sha256 } from '../../domain/hash.js';
+import { normaliseOpenApi } from '../../domain/openapi-diff.js';
 import type { ScenarioSpecs } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 
@@ -9,13 +10,11 @@ export interface RegisterContractInput {
   scenarioId?: string;
   baselineSpec?: Record<string, unknown> | string;
   candidateSpec?: Record<string, unknown> | string;
-  baselineUrl?: string;
-  candidateUrl?: string;
 }
 
 export interface RegisterContractResult {
   scenarioId: string;
-  sourceType: 'INLINE' | 'URL';
+  sourceType: 'INLINE';
   baselineSpecHash: string;
   candidateSpecHash: string;
   operationCountBaseline: number;
@@ -67,24 +66,13 @@ export class ContractService {
   constructor(private readonly config: ApiGuardConfig) {}
 
   async register(input: RegisterContractInput): Promise<RegisterContractResult> {
-    let baselineObj: Record<string, unknown>;
-    let candidateObj: Record<string, unknown>;
-    let sourceType: 'INLINE' | 'URL' = 'INLINE';
+    const baselineObj = parseJson(input.baselineSpec, 'baselineSpec');
+    const candidateObj = parseJson(input.candidateSpec, 'candidateSpec');
+    const sourceType: 'INLINE' = 'INLINE';
 
-    if (input.baselineUrl && input.candidateUrl) {
-      sourceType = 'URL';
-      const [bRes, cRes] = await Promise.all([
-        fetch(input.baselineUrl, { headers: { Accept: 'application/json' } }),
-        fetch(input.candidateUrl, { headers: { Accept: 'application/json' } })
-      ]);
-      if (!bRes.ok) throw new Error(`Failed to fetch baseline URL ${input.baselineUrl}: ${bRes.status}`);
-      if (!cRes.ok) throw new Error(`Failed to fetch candidate URL ${input.candidateUrl}: ${cRes.status}`);
-      baselineObj = parseJson(await bRes.text(), 'baselineUrl');
-      candidateObj = parseJson(await cRes.text(), 'candidateUrl');
-    } else {
-      baselineObj = parseJson(input.baselineSpec, 'baselineSpec');
-      candidateObj = parseJson(input.candidateSpec, 'candidateSpec');
-    }
+    // Validate the supported OpenAPI subset before persisting anything.
+    normaliseOpenApi(baselineObj);
+    normaliseOpenApi(candidateObj);
 
     const baselineHash = sha256(baselineObj);
     const candidateHash = sha256(candidateObj);
@@ -94,10 +82,23 @@ export class ContractService {
       : `scen_${sha256([baselineHash, candidateHash]).slice(0, 10)}`;
 
     const dir = path.resolve(process.cwd(), '.apiguard', 'scenarios', derivedId);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const baselinePath = path.join(dir, 'baseline.openapi.json');
+    const candidatePath = path.join(dir, 'candidate.openapi.json');
 
-    writeFileSync(path.join(dir, 'baseline.openapi.json'), JSON.stringify(baselineObj, null, 2), 'utf8');
-    writeFileSync(path.join(dir, 'candidate.openapi.json'), JSON.stringify(candidateObj, null, 2), 'utf8');
+    if (existsSync(baselinePath) || existsSync(candidatePath)) {
+      if (!existsSync(baselinePath) || !existsSync(candidatePath)) {
+        throw new Error(`Contract pair ${derivedId} is incomplete on disk; remove it or repair both spec files.`);
+      }
+      const existingBaseline = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+      const existingCandidate = JSON.parse(readFileSync(candidatePath, 'utf8')) as Record<string, unknown>;
+      if (sha256(existingBaseline) !== baselineHash || sha256(existingCandidate) !== candidateHash) {
+        throw new Error(`Contract pair ${derivedId} already exists with different content. Use a new scenarioId.`);
+      }
+    } else {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(baselinePath, JSON.stringify(baselineObj, null, 2), 'utf8');
+      writeFileSync(candidatePath, JSON.stringify(candidateObj, null, 2), 'utf8');
+    }
 
     return {
       scenarioId: derivedId,

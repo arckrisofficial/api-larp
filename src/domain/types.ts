@@ -5,7 +5,10 @@ export type ChangeCode =
   | 'OPERATION_REMOVED'
   | 'PARAMETER_REMOVED'
   | 'PARAMETER_BECAME_REQUIRED'
+  | 'REQUEST_BODY_BECAME_REQUIRED'
+  | 'RESPONSE_SCHEMA_REMOVED'
   | 'REQUIRED_PROPERTY_REMOVED'
+  | 'REQUIRED_PROPERTY_BECAME_OPTIONAL'
   | 'PROPERTY_BECAME_REQUIRED'
   | 'PROPERTY_TYPE_CHANGED'
   | 'ENUM_NARROWED'
@@ -90,7 +93,7 @@ export interface Assessment {
   candidateSpecHash: string;
   repositoryCommits: Record<string, string>;
   sourceMode: 'snapshot' | 'live';
-  classifierMode: 'llm' | 'deterministic-fallback' | 'hybrid-with-fallback';
+  classifierMode: 'llm' | 'deterministic-only' | 'deterministic-fallback' | 'hybrid-with-fallback';
   /** Version of the repository scope registry when this assessment was run */
   repositoryScopeVersion: number;
   /** Linked EvidenceSnapshotV2 ID */
