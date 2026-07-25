@@ -1,4 +1,4 @@
-import { ExecutionContext, ToolDecorator as Tool, Widget, z } from '@nitrostack/core';
+import { ExecutionContext, Injectable, ToolDecorator as Tool, Widget, z } from '@nitrostack/core';
 import { sha256 } from '../../domain/hash.js';
 import { ApiGuardConfig } from './config.service.js';
 import { AssessmentService } from './assessment.service.js';
@@ -42,6 +42,16 @@ const WIDGET_EXAMPLE = {
   limitations: ['Preview data uses a pinned repository snapshot.']
 };
 
+@Injectable({
+  deps: [
+    ApiGuardConfig,
+    SpecRepository,
+    DiffService,
+    EvidenceService,
+    RiskService,
+    AssessmentService
+  ]
+})
 export class ApiGuardTools {
   constructor(
     private readonly config: ApiGuardConfig,
@@ -59,12 +69,13 @@ export class ApiGuardTools {
     invocation: { invoking: 'Comparing API contracts…', invoked: 'API contract comparison complete' },
     examples: { request: { scenarioId: 'risky' }, response: { changes: [{ code: 'PROPERTY_TYPE_CHANGED', breaking: true }] } }
   })
-  async diffApiSpec(input: { scenarioId: string }, ctx: ExecutionContext) {
-    const scenario = await this.specs.getScenario(input.scenarioId);
+  async diffApiSpec(input: { scenarioId?: string }, ctx: ExecutionContext) {
+    const { scenarioId } = ScenarioInput.parse(input ?? {});
+    const scenario = await this.specs.getScenario(scenarioId);
     const changes = this.diffService.diff(scenario);
-    ctx.logger.info('OpenAPI diff completed', { scenarioId: input.scenarioId, changeCount: changes.length });
+    ctx.logger.info('OpenAPI diff completed', { scenarioId, changeCount: changes.length });
     return {
-      scenarioId: input.scenarioId,
+      scenarioId,
       baselineSpecHash: sha256(scenario.baseline),
       candidateSpecHash: sha256(scenario.candidate),
       supportedScope: 'OpenAPI 3.0 JSON with local component references',
@@ -79,13 +90,14 @@ export class ApiGuardTools {
     invocation: { invoking: 'Collecting consumer evidence…', invoked: 'Consumer evidence collected' },
     examples: { request: { scenarioId: 'risky' }, response: { sourceMode: 'snapshot', evidenceCount: 4 } }
   })
-  async discoverEvidence(input: { scenarioId: string }, ctx: ExecutionContext) {
-    const scenario = await this.specs.getScenario(input.scenarioId);
+  async discoverEvidence(input: { scenarioId?: string }, ctx: ExecutionContext) {
+    const { scenarioId } = ScenarioInput.parse(input ?? {});
+    const scenario = await this.specs.getScenario(scenarioId);
     const changes = this.diffService.diff(scenario);
-    const result = await this.evidenceService.discover(input.scenarioId, changes);
+    const result = await this.evidenceService.discover(scenarioId, changes);
     ctx.logger.info('Consumer evidence collected', { sourceMode: result.sourceMode, count: result.items.length });
     return {
-      scenarioId: input.scenarioId,
+      scenarioId,
       sourceMode: result.sourceMode,
       evidenceCount: result.items.length,
       limitations: result.limitations,
@@ -100,14 +112,15 @@ export class ApiGuardTools {
     invocation: { invoking: 'Assessing consumer impact…', invoked: 'Consumer impact assessed' },
     examples: { request: { scenarioId: 'risky' }, response: { overallSeverity: 'HIGH', classifierMode: 'deterministic-fallback' } }
   })
-  async assessRisk(input: { scenarioId: string }, ctx: ExecutionContext) {
-    const scenario = await this.specs.getScenario(input.scenarioId);
+  async assessRisk(input: { scenarioId?: string }, ctx: ExecutionContext) {
+    const { scenarioId } = ScenarioInput.parse(input ?? {});
+    const scenario = await this.specs.getScenario(scenarioId);
     const changes = this.diffService.diff(scenario);
-    const evidence = await this.evidenceService.discover(input.scenarioId, changes);
+    const evidence = await this.evidenceService.discover(scenarioId, changes);
     const risk = await this.riskService.assess(changes, evidence.items);
     ctx.logger.info('Consumer risk assessed', { severity: risk.severity, classifierMode: risk.classifierMode });
     return {
-      scenarioId: input.scenarioId,
+      scenarioId,
       sourceMode: evidence.sourceMode,
       classifierMode: risk.classifierMode,
       overallSeverity: risk.severity,
@@ -124,8 +137,9 @@ export class ApiGuardTools {
     examples: { request: { scenarioId: 'risky' }, response: WIDGET_EXAMPLE }
   })
   @Widget('api-impact-summary')
-  async runImpactAssessment(input: { scenarioId: string }, ctx: ExecutionContext) {
-    const assessment = await this.assessmentService.run(input.scenarioId);
+  async runImpactAssessment(input: { scenarioId?: string }, ctx: ExecutionContext) {
+    const { scenarioId } = ScenarioInput.parse(input ?? {});
+    const assessment = await this.assessmentService.run(scenarioId);
     ctx.logger.info('Impact assessment completed', {
       assessmentId: assessment.id,
       durationMs: assessment.durationMs,

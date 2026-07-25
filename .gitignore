@@ -9,3 +9,4 @@ src/widgets/.next/
 *.log
 .DS_Store
 coverage/
+.nitrostudio/

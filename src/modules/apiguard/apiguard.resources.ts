@@ -1,4 +1,4 @@
-import { ExecutionContext, ResourceDecorator as Resource } from '@nitrostack/core';
+import { ExecutionContext, Injectable, ResourceDecorator as Resource } from '@nitrostack/core';
 import { AssessmentService } from './assessment.service.js';
 import { SpecRepository } from './spec.repository.js';
 
@@ -6,6 +6,12 @@ function jsonResource(uri: string, data: unknown) {
   return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] };
 }
 
+@Injectable({
+  deps: [
+    SpecRepository,
+    AssessmentService
+  ]
+})
 export class ApiGuardResources {
   constructor(private readonly specs: SpecRepository, private readonly assessments: AssessmentService) {}
 

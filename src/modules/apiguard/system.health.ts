@@ -1,7 +1,7 @@
 import { HealthCheck, HealthCheckInterface, HealthCheckResult, Injectable } from '@nitrostack/core';
 import { ApiGuardConfig } from './config.service.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 @HealthCheck({ name: 'apiguard-system', description: 'APIGuard System Health Check' })
 export class SystemHealth implements HealthCheckInterface {
   constructor(private readonly config: ApiGuardConfig) {}

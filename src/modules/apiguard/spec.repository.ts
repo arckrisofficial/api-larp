@@ -4,13 +4,14 @@ import path from 'node:path';
 import type { ScenarioSpecs } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 export class SpecRepository {
   constructor(private readonly config: ApiGuardConfig) {}
 
   private scenarioPath(scenarioId: string, file: string): string {
-    if (!/^[a-z0-9_-]+$/i.test(scenarioId)) throw new Error('Invalid scenario identifier.');
-    return path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios', scenarioId, file);
+    const id = scenarioId || this.config.demoScenario || 'risky';
+    if (!/^[a-z0-9_-]+$/i.test(id)) throw new Error('Invalid scenario identifier.');
+    return path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios', id, file);
   }
 
   private async readJson(file: string): Promise<Record<string, unknown>> {
@@ -20,12 +21,13 @@ export class SpecRepository {
     return parsed as Record<string, unknown>;
   }
 
-  async getScenario(scenarioId = this.config.demoScenario): Promise<ScenarioSpecs> {
+  async getScenario(scenarioId?: string): Promise<ScenarioSpecs> {
+    const id = scenarioId || this.config.demoScenario || 'risky';
     const [baseline, candidate] = await Promise.all([
-      this.readJson(this.scenarioPath(scenarioId, 'baseline.openapi.json')),
-      this.readJson(this.scenarioPath(scenarioId, 'candidate.openapi.json'))
+      this.readJson(this.scenarioPath(id, 'baseline.openapi.json')),
+      this.readJson(this.scenarioPath(id, 'candidate.openapi.json'))
     ]);
-    return { scenarioId, baseline, candidate };
+    return { scenarioId: id, baseline, candidate };
   }
 
   async getSpec(scenarioId: string, kind: 'baseline' | 'candidate'): Promise<Record<string, unknown>> {

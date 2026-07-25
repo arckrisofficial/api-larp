@@ -5,7 +5,7 @@ import { ApiGuardConfig } from './config.service.js';
 import { RISK_SYSTEM_PROMPT, riskUserPrompt } from './risk.prompt.js';
 import { AssessRiskOutputSchema } from './risk.schemas.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 export class RiskService {
   constructor(private readonly config: ApiGuardConfig) {}
 

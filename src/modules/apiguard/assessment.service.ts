@@ -9,7 +9,15 @@ import { EvidenceService } from './evidence.service.js';
 import { RiskService } from './risk.service.js';
 import { SpecRepository } from './spec.repository.js';
 
-@Injectable()
+@Injectable({
+  deps: [
+    SpecRepository,
+    DiffService,
+    EvidenceService,
+    RiskService,
+    AssessmentRepository
+  ]
+})
 export class AssessmentService {
   constructor(
     private readonly specs: SpecRepository,
