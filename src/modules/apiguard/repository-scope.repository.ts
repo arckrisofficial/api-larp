@@ -1,9 +1,29 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { z } from 'zod';
 import { Injectable } from '@nitrostack/core';
 import type { ManagedRepository, RepositoryScope } from '../../domain/repository-scope.js';
 import { ApiGuardConfig } from './config.service.js';
+
+const managedRepositorySchema = z.object({
+  id: z.string(),
+  owner: z.string(),
+  name: z.string(),
+  branch: z.string(),
+  lastKnownCommitSha: z.string(),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']),
+  addedAt: z.string(),
+  addedBy: z.string(),
+  removedAt: z.string().optional(),
+  removalReason: z.string().optional(),
+});
+
+const repositoryScopeSchema = z.object({
+  version: z.number(),
+  updatedAt: z.string(),
+  repositories: z.array(managedRepositorySchema),
+});
 
 function repoId(owner: string, name: string): string {
   return createHash('sha256').update(`${owner}/${name}`).digest('hex').slice(0, 12);
@@ -60,12 +80,13 @@ export class RepositoryScopeRepository {
   // ── Persistence ───────────────────────────────────────────────────────────
 
   private load(): RepositoryScope {
+    if (!existsSync(this.filePath)) return structuredClone(EMPTY_SCOPE);
     try {
-      if (!existsSync(this.filePath)) return structuredClone(EMPTY_SCOPE);
       const raw = readFileSync(this.filePath, 'utf8');
-      return JSON.parse(raw) as RepositoryScope;
-    } catch {
-      return structuredClone(EMPTY_SCOPE);
+      const parsed = JSON.parse(raw);
+      return repositoryScopeSchema.parse(parsed) as RepositoryScope;
+    } catch (err) {
+      throw new Error(`[RepositoryScopeRepository] Failed to load scope from ${this.filePath}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

@@ -51,11 +51,15 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
     });
 
     if (forceRefresh) {
+      console.log(`[GitHubEvidenceProvider] Force refresh requested. Evicting cache key ${cacheKey}`);
       this.cache.delete(cacheKey);
     } else {
       const cached = this.cache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
+        console.log(`[GitHubEvidenceProvider] Cache HIT for scenario ${scenarioId}`);
         return { result: structuredClone(cached.value), snapshot: structuredClone(cached.snapshot) };
+      } else {
+        console.log(`[GitHubEvidenceProvider] Cache MISS for scenario ${scenarioId}`);
       }
     }
 
@@ -80,69 +84,75 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
       commitSha: r.lastKnownCommitSha
     }));
 
-    for (const managedRepo of activeRepos) {
-      const repoSlug = `${managedRepo.owner}/${managedRepo.name}`;
-      const commitSha = managedRepo.lastKnownCommitSha;
-      const defaultBranch = managedRepo.branch;
+    const concurrency = 3;
+    const chunkedRepos = [];
+    for (let i = 0; i < activeRepos.length; i += concurrency) {
+      chunkedRepos.push(activeRepos.slice(i, i + concurrency));
+    }
 
-      try {
-        let repoHasHits = false;
-        for (const query of queries) {
-          const q = `"${query.query}" repo:${repoSlug}`;
-          const search = await request(`/search/code?q=${encodeURIComponent(q)}&per_page=${this.config.githubMaxMatchesPerQuery}`);
-          const matches = Array.isArray(search.items) ? search.items.slice(0, this.config.githubMaxMatchesPerQuery) : [];
+    for (const chunk of chunkedRepos) {
+      await Promise.all(chunk.map(async (managedRepo) => {
+        const repoSlug = `${managedRepo.owner}/${managedRepo.name}`;
+        const commitSha = managedRepo.lastKnownCommitSha;
+        const defaultBranch = managedRepo.branch;
 
-          for (const [index, raw] of matches.entries()) {
-            if (!raw || typeof raw !== 'object') continue;
-            const item = raw as Record<string, unknown>;
-            const filePath = String(item.path ?? '');
-            if (!filePath) continue;
+        try {
+          for (const query of queries) {
+            const q = `"${query.query}" repo:${repoSlug}`;
+            const search = await request(`/search/code?q=${encodeURIComponent(q)}&per_page=${this.config.githubMaxMatchesPerQuery}`);
+            const matches = Array.isArray(search.items) ? search.items.slice(0, this.config.githubMaxMatchesPerQuery) : [];
 
-            const source = await this.fetchSource(request, managedRepo.owner, managedRepo.name, filePath, commitSha);
-            const excerpt = excerptFor(source, query.query, this.config.maxSnippetChars);
-            const snippetHash = sha256(excerpt.snippet);
-            const evidenceId = `live_${sha256([repoSlug, query.id, filePath, index, commitSha]).slice(0, 12)}`;
+            for (const [index, raw] of matches.entries()) {
+              if (!raw || typeof raw !== 'object') continue;
+              const item = raw as Record<string, unknown>;
+              const filePath = String(item.path ?? '');
+              if (!filePath) continue;
 
-            items.push({
-              id: evidenceId,
-              sourceMode: 'live',
-              capturedAt: new Date().toISOString(),
-              repository: repoSlug,
-              branch: defaultBranch,
-              commitSha,
-              searchQuery: query.query,
-              generatedFromChangeIds: query.changeIds,
-              filePath,
-              lineStart: excerpt.lineStart,
-              lineEnd: excerpt.lineEnd,
-              snippet: excerpt.snippet,
-              contentHash: snippetHash,
-              htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
-            });
+              const source = await this.fetchSource(request, managedRepo.owner, managedRepo.name, filePath, commitSha);
+              const excerpt = excerptFor(source, query.query, this.config.maxSnippetChars);
+              const snippetHash = sha256(excerpt.snippet);
+              const evidenceId = `live_${sha256([repoSlug, query.id, filePath, index, commitSha]).slice(0, 12)}`;
 
-            snapshotResults.push({
-              evidenceId,
-              repository: repoSlug,
-              branch: defaultBranch,
-              commitSha,
-              queryId: query.id,
-              filePath,
-              lineStart: excerpt.lineStart,
-              lineEnd: excerpt.lineEnd,
-              snippet: excerpt.snippet,
-              contentHash: snippetHash,
-              htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
-            });
-            repoHasHits = true;
+              items.push({
+                id: evidenceId,
+                sourceMode: 'live',
+                capturedAt: new Date().toISOString(),
+                repository: repoSlug,
+                branch: defaultBranch,
+                commitSha,
+                searchQuery: query.query,
+                generatedFromChangeIds: query.changeIds,
+                filePath,
+                lineStart: excerpt.lineStart,
+                lineEnd: excerpt.lineEnd,
+                snippet: excerpt.snippet,
+                contentHash: snippetHash,
+                htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
+              });
+
+              snapshotResults.push({
+                evidenceId,
+                repository: repoSlug,
+                branch: defaultBranch,
+                commitSha,
+                queryId: query.id,
+                filePath,
+                lineStart: excerpt.lineStart,
+                lineEnd: excerpt.lineEnd,
+                snippet: excerpt.snippet,
+                contentHash: snippetHash,
+                htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
+              });
+            }
           }
+          repositoriesChecked.push(repoSlug);
+        } catch (err) {
+          repositoriesFailed.push({
+            repository: repoSlug,
+            errorCode: String(err instanceof Error ? err.message : err).slice(0, 120)
+          });
         }
-        repositoriesChecked.push(repoSlug);
-      } catch (err) {
-        repositoriesFailed.push({
-          repository: repoSlug,
-          errorCode: String(err instanceof Error ? err.message : err).slice(0, 120)
-        });
-      }
+      }));
     }
 
     const now = new Date().toISOString();
@@ -214,7 +224,17 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
           'User-Agent': 'api-larp-nitrostack-hackathon'
         }
       });
-      if (!response.ok) throw new Error(`GitHub API ${response.status}: ${await response.text()}`);
+      
+      const remaining = response.headers.get('x-ratelimit-remaining');
+      const reset = response.headers.get('x-ratelimit-reset');
+      
+      if (!response.ok) {
+        if (response.status === 403 && remaining === '0') {
+           const resetTime = reset ? new Date(Number(reset) * 1000).toLocaleTimeString() : 'unknown';
+           throw new Error(`GitHub rate limit exhausted. Resets at ${resetTime}.`);
+        }
+        throw new Error(`GitHub API ${response.status}: ${await response.text()}`);
+      }
       return await response.json() as Record<string, unknown>;
     } finally {
       clearTimeout(timeout);
