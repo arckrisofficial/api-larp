@@ -3,26 +3,29 @@ import { AssessmentService } from './assessment.service.js';
 import { EvidenceService } from './evidence.service.js';
 import { RepositoryScopeRepository } from './repository-scope.repository.js';
 import { SpecRepository } from './spec.repository.js';
+import { LocalArtifactStore } from './artifact-store.service.js';
 
 function jsonResource(uri: string, data: unknown) {
   return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] };
 }
 
-@Injectable({
-  deps: [
-    SpecRepository,
-    AssessmentService,
-    RepositoryScopeRepository,
-    EvidenceService
-  ]
-})
-export class ApiGuardResources {
-  constructor(
-    private readonly specs: SpecRepository,
-    private readonly assessments: AssessmentService,
-    private readonly scopeRepository: RepositoryScopeRepository,
-    private readonly evidenceService: EvidenceService
-  ) {}
+  @Injectable({
+    deps: [
+      SpecRepository,
+      AssessmentService,
+      RepositoryScopeRepository,
+      EvidenceService,
+      LocalArtifactStore
+    ]
+  })
+  export class ApiGuardResources {
+    constructor(
+      private readonly specs: SpecRepository,
+      private readonly assessments: AssessmentService,
+      private readonly scopeRepository: RepositoryScopeRepository,
+      private readonly evidenceService: EvidenceService,
+      private readonly artifactStore: LocalArtifactStore
+    ) {}
 
   @Resource({ uri: 'apiguard://scenarios/{scenarioId}/specs/baseline', name: 'Baseline OpenAPI specification', description: 'The currently released OpenAPI contract.', mimeType: 'application/json' })
   async baseline(uri: string, _ctx: ExecutionContext) {
@@ -67,5 +70,18 @@ export class ApiGuardResources {
     const snapshot = this.evidenceService.getSnapshot(match[1]);
     if (!snapshot) throw new Error(`Evidence snapshot ${match[1]} was not found.`);
     return jsonResource(uri, snapshot);
+  }
+  @Resource({
+    uri: 'apiguard://evidence-packages/{bundleId}',
+    name: 'Evidence Package',
+    description: 'Read an exported release evidence package bundle.',
+    mimeType: 'application/json'
+  })
+  async evidencePackage(uri: string, _ctx: ExecutionContext) {
+    const match = /^apiguard:\/\/evidence-packages\/(.+)$/.exec(uri);
+    if (!match?.[1]) throw new Error('Invalid evidence package resource URI.');
+    const bundle = await this.artifactStore.get('evidence-packages', match[1]);
+    if (!bundle) throw new Error(`Evidence package ${match[1]} was not found.`);
+    return jsonResource(uri, bundle);
   }
 }

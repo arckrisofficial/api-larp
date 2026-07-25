@@ -15,6 +15,23 @@ import { LocalArtifactStore } from './artifact-store.service.js';
 
 import { PrPublisherService } from './pr-publisher.service.js';
 
+function CatchError() {
+  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    const originalMethod = descriptor.value;
+    descriptor.value = async function (...args: any[]) {
+      try {
+        return await originalMethod.apply(this, args);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const ctx = args.find(a => a && typeof a.logger?.error === 'function');
+        if (ctx) ctx.logger.error(`[Tool:${propertyKey}] failed: ${message}`);
+        return { error: true, message };
+      }
+    };
+    return descriptor;
+  };
+}
+
 const ScenarioInput = z.object({
   scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Fixture or registered scenario identifier.')
 });
@@ -71,6 +88,7 @@ export class ApiGuardTools {
       response: { scenarioId: 'custom_user_v2', sourceType: 'INLINE', operationCountBaseline: 0, operationCountCandidate: 0 }
     }
   })
+  @CatchError()
   async registerContractPair(
     input: {
       scenarioId?: string;
@@ -96,6 +114,7 @@ export class ApiGuardTools {
     invocation: { invoking: 'Comparing API contracts…', invoked: 'API contract comparison complete' },
     examples: { request: { scenarioId: 'risky' }, response: { scenarioId: 'risky', summary: { totalChanges: 4, breakingChanges: 3 } } }
   })
+  @CatchError()
   async diffApiSpec(input: { scenarioId?: string }, ctx: ExecutionContext) {
     const { scenarioId } = ScenarioInput.parse(input ?? {});
     const scenario = await this.specs.getScenario(scenarioId);
@@ -132,31 +151,8 @@ export class ApiGuardTools {
   }
 
   @Tool({
-    name: 'discover_consumer_evidence',
-    description: '[DEPRECATED] Collect consumer evidence. Prefer using apiguard://evidence-snapshots/{snapshotId} resource instead.',
-    inputSchema: ScenarioInput,
-    invocation: { invoking: 'Collecting consumer evidence (deprecated)…', invoked: 'Consumer evidence collected' },
-    examples: { request: { scenarioId: 'risky' }, response: { deprecated: true, evidenceCount: 4 } }
-  })
-  async discoverEvidence(input: { scenarioId?: string }, ctx: ExecutionContext) {
-    const { scenarioId } = ScenarioInput.parse(input ?? {});
-    const scenario = await this.specs.getScenario(scenarioId);
-    const changes = this.diffService.diff(scenario);
-    const result = await this.evidenceService.discover(scenarioId, changes);
-    ctx.logger.info('Consumer evidence collected (deprecated path)', { count: result.items.length });
-    return {
-      deprecated: true,
-      replacementResourceUri: 'apiguard://evidence-snapshots/{snapshotId}',
-      scenarioId,
-      sourceMode: result.sourceMode,
-      evidenceCount: result.items.length,
-      limitations: result.limitations,
-      evidence: result.items
-    };
-  }
-
-  @Tool({
     name: 'refresh_repository_evidence',
+    taskSupport: 'optional',
     description: 'Perform an evidence scan across active scope repositories, update commit SHAs, and generate an immutable versioned EvidenceSnapshotV2 package.',
     inputSchema: z.object({
       scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Scenario identifier.'),
@@ -169,6 +165,7 @@ export class ApiGuardTools {
       response: { snapshotId: 'snap_123', status: 'COMPLETE', evidenceItems: 4 }
     }
   })
+  @CatchError()
   async refreshRepositoryEvidence(
     input: { scenarioId?: string; repositories?: string[]; forceRefresh?: boolean },
     ctx: ExecutionContext
@@ -217,6 +214,7 @@ export class ApiGuardTools {
     invocation: { invoking: 'Assessing consumer impact…', invoked: 'Consumer impact assessed' },
     examples: { request: { scenarioId: 'risky' }, response: { overallSeverity: 'HIGH', classifierMode: 'deterministic-fallback' } }
   })
+  @CatchError()
   async assessRisk(input: { scenarioId?: string; snapshotId?: string }, ctx: ExecutionContext) {
     const scenarioId = input.scenarioId || 'risky';
     const scenario = await this.specs.getScenario(scenarioId);
@@ -262,6 +260,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Resolving owners...', invoked: 'Owners resolved' }
   })
+  @CatchError()
   async resolveConsumerOwners(input: { assessmentId: string }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
     if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
@@ -292,6 +291,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Evaluating policy...', invoked: 'Policy evaluated' }
   })
+  @CatchError()
   async evaluateReleasePolicy(input: { assessmentId: string; profile?: 'STRICT' | 'BALANCED' }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
     if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
@@ -317,6 +317,7 @@ export class ApiGuardTools {
     examples: { request: { scenarioId: 'risky' }, response: { analysisStatus: 'COMPLETE', overallSeverity: 'HIGH' } }
   })
   @Widget('api-impact-summary')
+  @CatchError()
   async runImpactAssessment(input: { scenarioId?: string; snapshotId?: string; forceRefresh?: boolean }, ctx: ExecutionContext) {
     const scenarioId = input.scenarioId || 'risky';
     const assessment = await this.assessmentService.run({ scenarioId, snapshotId: input.snapshotId, forceRefresh: input.forceRefresh });
@@ -346,6 +347,7 @@ export class ApiGuardTools {
     }
   })
   @Widget('api-impact-summary')
+  @CatchError()
   async recordDecision(
     input: {
       assessmentId: string;
@@ -392,6 +394,7 @@ export class ApiGuardTools {
       response: { changed: true, action: 'ADD', repository: { owner: 'arckrisofficial', name: 'api-larp', status: 'ACTIVE' }, snapshotStatus: 'STALE' }
     }
   })
+  @CatchError()
   async manageRepositoryScope(
     input: {
       action: 'ADD' | 'REMOVE';
@@ -418,6 +421,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Exporting evidence bundle...', invoked: 'Evidence bundle exported' }
   })
+  @CatchError()
   async exportReleaseEvidencePackage(input: { assessmentId: string }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
     if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
@@ -452,6 +456,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Verifying readiness...', invoked: 'Readiness verified' }
   })
+  @CatchError()
   async verifyMigrationReadiness(input: { bundleId: string }, ctx: ExecutionContext) {
     const bundle = await this.artifactStore.get<any>('evidence-packages', input.bundleId);
     if (!bundle) throw new Error(`Evidence package ${input.bundleId} not found.`);
@@ -481,6 +486,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Publishing to PR...', invoked: 'Published to PR' }
   })
+  @CatchError()
   async publishAssessmentToPr(input: { assessmentId: string; prUrl: string; idempotencyKey: string }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
     if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);

@@ -62,10 +62,14 @@ async function run() {
   console.log(diffResult.summary);
 
   console.log('\n--- 2. Manage Repository Scope ---');
-  const scopeResult = await tools.manageRepositoryScope({
-    action: 'ADD', owner: 'arckrisofficial', repository: 'api-larp', branch: 'main', reason: 'E2E Testing', confirmed: true
-  }, ctx);
-  console.log(`Action: ${scopeResult.action}, Changed: ${scopeResult.changed}, Version: ${scopeResult.scope.version}`);
+  const scopeRes = await tools.manageRepositoryScope({
+    action: 'ADD',
+    owner: config.githubOwner,
+    repository: 'apiguard-react-consumer',
+    reason: 'E2E Testing',
+    confirmed: true
+  }, ctx as any);
+  console.log(`Action: ${scopeRes.action}, Changed: ${scopeRes.changed}, Version: ${scopeRes.scope.version}`);
 
   console.log('\n--- 3. Refresh Evidence ---');
   const refreshResult = await tools.refreshRepositoryEvidence({ scenarioId: 'risky', forceRefresh: true }, ctx);
