@@ -1,3 +1,5 @@
+import type { EvidenceCoverage } from './types.js';
+
 export interface EvidenceSnapshotQuery {
   queryId: string;
   query: string;
@@ -6,6 +8,9 @@ export interface EvidenceSnapshotQuery {
 
 export interface EvidenceSnapshotResult {
   evidenceId: string;
+  changeSemanticKey: string;
+  consumerImpactKey: string;
+  evidenceFingerprint: string;
   repository: string;
   branch: string;
   commitSha: string;
@@ -28,17 +33,20 @@ export interface EvidenceSnapshotV2 {
   repositoryScopeVersion: number;
   queryPlanHash: string;
   generatedAt: string;
-  repositoriesExpected: Array<{
-    owner: string;
-    name: string;
+  repositories: Array<{
+    repository: string;
     branch: string;
     commitSha: string;
+    scanStatus: 'COMPLETE' | 'PARTIAL' | 'FAILED';
+    codeowners?: {
+      path: '.github/CODEOWNERS' | 'CODEOWNERS' | 'docs/CODEOWNERS';
+      content: string;
+      contentHash: string;
+      commitSha: string;
+    };
+    error?: string;
   }>;
-  repositoriesChecked: string[];
-  repositoriesFailed: Array<{
-    repository: string;
-    errorCode: string;
-  }>;
+  coverage: EvidenceCoverage;
   queries: EvidenceSnapshotQuery[];
   results: EvidenceSnapshotResult[];
 }

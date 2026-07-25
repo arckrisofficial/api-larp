@@ -28,13 +28,16 @@ export interface ApiChange {
 
 export interface EvidenceItem {
   id: string;
+  changeSemanticKey: string;
+  consumerImpactKey: string;
+  evidenceFingerprint: string;
   sourceMode: 'snapshot' | 'live';
   capturedAt: string;
   repository: string;
   branch: string;
   commitSha: string;
   searchQuery: string;
-  generatedFromChangeIds: string[];
+  relatedChangeIds: string[];
   filePath: string;
   lineStart: number;
   lineEnd: number;
@@ -81,6 +84,52 @@ export interface ReleaseDecision {
   idempotencyKey: string;
 }
 
+export interface PolicyEvaluation {
+  evaluationId: string;
+  assessmentId: string;
+  assessmentVersion: number;
+  policyProfile: 'STRICT' | 'BALANCED';
+  policyVersion: '1.0.0';
+  verdict: 'ALLOW' | 'BLOCK' | 'MANUAL_REVIEW';
+  rules: Array<{
+    ruleId: string;
+    result: 'PASS' | 'FAIL' | 'UNKNOWN' | 'SKIPPED';
+    effect: 'BLOCK' | 'MANUAL_REVIEW' | 'NONE';
+    explanation: string;
+    evidenceRefs: string[];
+  }>;
+  evaluatedAt: string;
+}
+
+export interface OwnershipResolution {
+  resolutionId: string;
+  assessmentId: string;
+  assessmentVersion: number;
+  resolvedAt: string;
+  assignments: Array<{
+    evidenceId: string;
+    consumerImpactKey: string;
+    repository: string;
+    filePath: string;
+    owners: string[];
+    status: 'RESOLVED' | 'UNRESOLVED';
+    source: 'CODEOWNERS' | 'REPOSITORY_FALLBACK' | 'NONE';
+    codeownersPath?: string;
+    matchedPattern?: string;
+    matchedLine?: number;
+    codeownersCommitSha?: string;
+  }>;
+  unresolvedCount: number;
+  warnings: string[];
+}
+
+export interface EvidenceCoverage {
+  repositoriesExpected: number;
+  repositoriesChecked: number;
+  repositoriesFailed: number;
+  ratio: number;
+}
+
 export interface Assessment {
   id: string;
   scenarioId: string;
@@ -91,15 +140,9 @@ export interface Assessment {
   repositoryCommits: Record<string, string>;
   sourceMode: 'snapshot' | 'live';
   classifierMode: 'llm' | 'deterministic-fallback' | 'hybrid-with-fallback';
-  /** Version of the repository scope registry when this assessment was run */
   repositoryScopeVersion: number;
-  /** Linked EvidenceSnapshotV2 ID */
   evidenceSnapshotId?: string;
-  /** Coverage statistics */
-  repositoriesExpected?: string[];
-  repositoriesChecked?: string[];
-  repositoriesFailed?: string[];
-  coverageRatio?: number;
+  coverage: EvidenceCoverage;
   changes: ApiChange[];
   evidence: AssessedEvidence[];
   overallSeverity: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -108,6 +151,9 @@ export interface Assessment {
   createdAt: string;
   updatedAt: string;
   version: number;
+  expectedAssessmentVersion?: number;
+  ownershipResolution?: OwnershipResolution;
+  policyEvaluations: PolicyEvaluation[];
   decision?: ReleaseDecision;
 }
 
@@ -115,4 +161,9 @@ export interface ScenarioSpecs {
   scenarioId: string;
   baseline: Record<string, unknown>;
   candidate: Record<string, unknown>;
+}
+
+export interface ArtifactStore {
+  createOnce<T>(namespace: string, id: string, value: T): Promise<T>;
+  get<T>(namespace: string, id: string): Promise<T | null>;
 }

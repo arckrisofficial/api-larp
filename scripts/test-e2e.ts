@@ -8,6 +8,10 @@ import { EvidenceSnapshotRepository } from '../src/modules/apiguard/evidence-sna
 import { EvidenceService } from '../src/modules/apiguard/evidence.service.js';
 import { RiskService } from '../src/modules/apiguard/risk.service.js';
 import { AssessmentRepository } from '../src/modules/apiguard/assessment.repository.js';
+import { OwnershipService } from '../src/modules/apiguard/ownership.service.js';
+import { PolicyService } from '../src/modules/apiguard/policy.service.js';
+import { LocalArtifactStore } from '../src/modules/apiguard/artifact-store.service.js';
+import { PrPublisherService } from '../src/modules/apiguard/pr-publisher.service.js';
 import { AssessmentService } from '../src/modules/apiguard/assessment.service.js';
 import { RepositoryScopeRepository } from '../src/modules/apiguard/repository-scope.repository.js';
 import { RepositoryScopeService } from '../src/modules/apiguard/repository-scope.service.js';
@@ -28,6 +32,10 @@ async function run() {
   const assessmentRepo = new AssessmentRepository();
   const scopeService = new RepositoryScopeService(config, scopeRepo);
   const assessmentService = new AssessmentService(specRepo, diffService, evidenceService, riskService, assessmentRepo, scopeRepo);
+  const ownershipService = new OwnershipService();
+  const policyService = new PolicyService(specRepo);
+  const artifactStore = new LocalArtifactStore();
+  const prPublisherService = new PrPublisherService();
   const tools = new ApiGuardTools(
     config,
     specRepo,
@@ -36,7 +44,11 @@ async function run() {
     evidenceService,
     riskService,
     assessmentService,
-    scopeService
+    scopeService,
+    ownershipService,
+    policyService,
+    artifactStore,
+    prPublisherService
   );
 
   const ctx = {
@@ -46,7 +58,7 @@ async function run() {
   } as any;
 
   console.log('\n--- 1. Diff API Spec ---');
-  const diffResult = await tools.diffApiSpec({ scenarioId: 'audit_test_scen' }, ctx);
+  const diffResult = await tools.diffApiSpec({ scenarioId: 'risky' }, ctx);
   console.log(diffResult.summary);
 
   console.log('\n--- 2. Manage Repository Scope ---');
@@ -56,24 +68,50 @@ async function run() {
   console.log(`Action: ${scopeResult.action}, Changed: ${scopeResult.changed}, Version: ${scopeResult.scope.version}`);
 
   console.log('\n--- 3. Refresh Evidence ---');
-  const refreshResult = await tools.refreshRepositoryEvidence({ scenarioId: 'audit_test_scen', forceRefresh: true }, ctx);
-  console.log(`Snapshot: ${refreshResult.snapshotId}, Status: ${refreshResult.status}, Failed: ${refreshResult.repositoriesFailed.length}`);
+  const refreshResult = await tools.refreshRepositoryEvidence({ scenarioId: 'risky', forceRefresh: true }, ctx);
+  console.log(`Snapshot: ${refreshResult.snapshotId}, Status: ${refreshResult.status}, Failed: ${refreshResult.repositoriesFailed}`);
 
   console.log('\n--- 4. Run Impact Assessment ---');
-  const assessResult = await tools.runImpactAssessment({ scenarioId: 'audit_test_scen' }, ctx);
+  const assessResult = await tools.runImpactAssessment({ scenarioId: 'risky' }, ctx);
   console.log(`Assessment ID: ${assessResult.id}`);
   console.log(`Status: ${assessResult.analysisStatus}, Severity: ${assessResult.overallSeverity}`);
 
-  console.log('\n--- 5. Record Release Decision ---');
+  console.log('\n--- 5. Resolve Consumer Owners ---');
+  const ownershipResult = await tools.resolveConsumerOwners({ assessmentId: assessResult.id }, ctx);
+  console.log(`Resolution ID: ${ownershipResult.resolutionId}, Assignments: ${ownershipResult.assignments}, Unresolved: ${ownershipResult.unresolvedCount}`);
+
+  console.log('\n--- 6. Evaluate Release Policy ---');
+  const policyResult = await tools.evaluateReleasePolicy({ assessmentId: assessResult.id, profile: 'STRICT' }, ctx);
+  console.log(`Verdict: ${policyResult.verdict}, Rules evaluated: ${policyResult.rules.length}`);
+
+  console.log('\n--- 7. Export Release Evidence Package ---');
+  const exportResult = await tools.exportReleaseEvidencePackage({ assessmentId: assessResult.id }, ctx);
+  console.log(`Bundle exported to: ${exportResult.artifactUri}`);
+
+  console.log('\n--- 8. Verify Migration Readiness ---');
+  const verifyResult = await tools.verifyMigrationReadiness({ bundleId: exportResult.bundleId }, ctx);
+  console.log(`Ready for migration: ${verifyResult.readyForMigration}`);
+  console.log(`Reason: ${verifyResult.reason}`);
+
+  console.log('\n--- 9. Record Release Decision ---');
   const decisionResult = await tools.recordDecision({
     assessmentId: assessResult.id,
     expectedVersion: assessResult.version || 1,
     decision: 'BLOCK',
     idempotencyKey: 'e2e-test-key-1',
-    reason: 'E2E test verification',
+    reason: 'Failing STRICT policy and unowned code'
   }, ctx);
-  console.log(`Decision State: ${decisionResult.decision?.decision || decisionResult.decisionStatus}`);
-  console.log('E2E TEST PASSED!');
+  console.log(`Decision State: ${decisionResult.decisionStatus}`);
+
+  console.log('\n--- 10. Publish Assessment to PR ---');
+  const publishResult = await tools.publishAssessmentToPr({
+    assessmentId: assessResult.id,
+    prUrl: 'https://github.com/arckrisofficial/api-larp/pull/42',
+    idempotencyKey: `pr42_${assessResult.id}`
+  }, ctx);
+  console.log(`Published to PR: ${publishResult.prUrl} (ID: ${publishResult.publishedId})`);
+
+  console.log('\nE2E TEST PASSED!');
 }
 
 run().catch((err) => {

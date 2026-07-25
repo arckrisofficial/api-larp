@@ -13,9 +13,15 @@ import { AssessmentService } from './assessment.service.js';
 import { RepositoryScopeRepository } from './repository-scope.repository.js';
 import { RepositoryScopeService } from './repository-scope.service.js';
 import { ApiGuardTools } from './apiguard.tools.js';
+
 import { ApiGuardResources } from './apiguard.resources.js';
 import { ApiGuardPrompts } from './apiguard.prompts.js';
 import { SystemLiveness, SystemReadiness } from './system.health.js';
+import { OwnershipService } from './ownership.service.js';
+import { PolicyService } from './policy.service.js';
+import { LocalArtifactStore } from './artifact-store.service.js';
+
+import { PrPublisherService } from './pr-publisher.service.js';
 
 @Module({
   name: 'apiguard',
@@ -35,8 +41,12 @@ import { SystemLiveness, SystemReadiness } from './system.health.js';
     AssessmentService,
     RepositoryScopeRepository,
     RepositoryScopeService,
+    OwnershipService,
+    PolicyService,
     SystemLiveness,
-    SystemReadiness
+    SystemReadiness,
+    LocalArtifactStore,
+    PrPublisherService
   ],
   exports: [AssessmentService, ContractService, EvidenceService]
 })

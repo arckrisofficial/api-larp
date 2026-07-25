@@ -65,7 +65,7 @@ export function riskUserPrompt(changes: ApiChange[], evidence: EvidenceItem[]): 
 
 EVIDENCE_ITEMS:
 ${evidence.map((item) => {
-  const linkedChanges = item.generatedFromChangeIds
+  const linkedChanges = item.relatedChangeIds
     .map((id) => changeMap.get(id))
     .filter(Boolean);
 

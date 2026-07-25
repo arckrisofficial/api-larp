@@ -10,3 +10,5 @@ src/widgets/.next/
 .DS_Store
 coverage/
 .nitrostudio/
+.apiguard/
+artifacts/
