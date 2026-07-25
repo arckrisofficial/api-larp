@@ -5,7 +5,7 @@ import { ApiGuardConfig } from './config.service.js';
 import { RISK_SYSTEM_PROMPT, riskUserPrompt } from './risk.prompt.js';
 import { AssessRiskOutputSchema } from './risk.schemas.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 export class RiskService {
   constructor(private readonly config: ApiGuardConfig) {}
 
@@ -47,7 +47,7 @@ export class RiskService {
     try {
       const raw = this.config.llmProvider === 'anthropic'
         ? await this.callAnthropic(changes, evidence, controller.signal)
-        : await this.callOpenAi(changes, evidence, controller.signal);
+        : await this.callGemini(changes, evidence, controller.signal);
       const parsed = JSON.parse(raw) as unknown;
       return AssessRiskOutputSchema.parse(parsed);
     } finally {
@@ -55,19 +55,21 @@ export class RiskService {
     }
   }
 
-  private async callOpenAi(changes: ApiChange[], evidence: EvidenceItem[], signal: AbortSignal): Promise<string> {
-    if (!this.config.openAiKey) throw new Error('OPENAI_API_KEY is missing.');
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  private async callGemini(changes: ApiChange[], evidence: EvidenceItem[], signal: AbortSignal): Promise<string> {
+    if (!this.config.geminiKey) throw new Error('GEMINI_API_KEY is missing.');
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.geminiModel}:generateContent?key=${this.config.geminiKey}`, {
       method: 'POST', signal,
-      headers: { Authorization: `Bearer ${this.config.openAiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.config.openAiModel, temperature: 0, response_format: { type: 'json_object' }, messages: [
-        { role: 'system', content: RISK_SYSTEM_PROMPT }, { role: 'user', content: riskUserPrompt(changes, evidence) }
-      ] })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: RISK_SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: riskUserPrompt(changes, evidence) }] }],
+        generationConfig: { temperature: 0, responseMimeType: 'application/json' }
+      })
     });
-    if (!response.ok) throw new Error(`OpenAI ${response.status}: ${await response.text()}`);
+    if (!response.ok) throw new Error(`Gemini ${response.status}: ${await response.text()}`);
     const payload = await response.json() as any;
-    const content = payload.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') throw new Error('OpenAI response contained no JSON text.');
+    const content = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof content !== 'string') throw new Error('Gemini response contained no JSON text.');
     return content;
   }
 

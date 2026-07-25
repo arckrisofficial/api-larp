@@ -1,5 +1,6 @@
-import { ExecutionContext, PromptDecorator as Prompt } from '@nitrostack/core';
+import { ExecutionContext, PromptDecorator as Prompt, Injectable } from '@nitrostack/core';
 
+@Injectable()
 export class ApiGuardPrompts {
   @Prompt({
     name: 'review_api_release',

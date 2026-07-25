@@ -7,17 +7,19 @@ import { ApiGuardConfig } from './config.service.js';
 import { EvidenceSnapshotSchema, type EvidenceSnapshot } from './evidence.schemas.js';
 import type { EvidenceDiscoveryResult, EvidenceProvider } from './evidence.provider.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 export class SnapshotEvidenceProvider implements EvidenceProvider {
   constructor(private readonly config: ApiGuardConfig) {}
 
-  async loadSnapshot(scenarioId: string): Promise<EvidenceSnapshot> {
-    const file = path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios', scenarioId, 'evidence.snapshot.json');
+  async loadSnapshot(scenarioId?: string): Promise<EvidenceSnapshot> {
+    const id = scenarioId || this.config.demoScenario;
+    const file = path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios', id, 'evidence.snapshot.json');
     return EvidenceSnapshotSchema.parse(JSON.parse(await readFile(file, 'utf8')));
   }
 
-  async discover(scenarioId: string, changes: ApiChange[]): Promise<EvidenceDiscoveryResult> {
-    const snapshot = await this.loadSnapshot(scenarioId);
+  async discover(scenarioId: string | undefined, changes: ApiChange[]): Promise<EvidenceDiscoveryResult> {
+    const id = scenarioId || this.config.demoScenario;
+    const snapshot = await this.loadSnapshot(id);
     const queryMap = new Map(snapshot.queries.map((query) => [query.queryId, query] as const));
     const validChangeIds = new Set(changes.map((change) => change.id));
     const items: EvidenceItem[] = snapshot.results.map((result) => {

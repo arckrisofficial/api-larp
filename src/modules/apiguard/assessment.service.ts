@@ -9,7 +9,7 @@ import { EvidenceService } from './evidence.service.js';
 import { RiskService } from './risk.service.js';
 import { SpecRepository } from './spec.repository.js';
 
-@Injectable()
+@Injectable({ deps: [SpecRepository, DiffService, EvidenceService, RiskService, AssessmentRepository] })
 export class AssessmentService {
   constructor(
     private readonly specs: SpecRepository,
@@ -19,17 +19,18 @@ export class AssessmentService {
     private readonly repository: AssessmentRepository
   ) {}
 
-  async run(scenarioId: string): Promise<Assessment> {
+  async run(scenarioId?: string): Promise<Assessment> {
     const started = Date.now();
     const scenario = await this.specs.getScenario(scenarioId);
+    const targetScenarioId = scenario.scenarioId;
     const changes = this.diffService.diff(scenario);
-    const discovered = await this.evidenceService.discover(scenarioId, changes);
+    const discovered = await this.evidenceService.discover(targetScenarioId, changes);
     const risk = await this.riskService.assess(changes, discovered.items);
     const now = new Date().toISOString();
     const repositoryCommits = Object.fromEntries(discovered.items.map((item) => [item.repository, item.commitSha]));
     const hasReview = risk.evidence.some((item) => item.classification === 'REVIEW_REQUIRED');
     const assessment: Assessment = {
-      id: `asm_${randomUUID()}`, scenarioId,
+      id: `asm_${randomUUID()}`, scenarioId: targetScenarioId,
       analysisStatus: hasReview ? 'COMPLETE_WITH_WARNINGS' : 'COMPLETE', decisionStatus: 'PENDING',
       baselineSpecHash: sha256(scenario.baseline), candidateSpecHash: sha256(scenario.candidate), repositoryCommits,
       sourceMode: discovered.sourceMode, classifierMode: risk.classifierMode,

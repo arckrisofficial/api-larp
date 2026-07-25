@@ -14,7 +14,7 @@ function integer(name: string, fallback: number): number {
 @Injectable()
 export class ApiGuardConfig {
   readonly fixturesDir = process.env.APIGUARD_FIXTURES_DIR
-    ?? (process.env.NODE_ENV === 'production' ? 'dist/fixtures' : 'fixtures');
+    || (process.env.NODE_ENV === 'production' ? 'dist/fixtures' : 'fixtures');
   readonly demoScenario = process.env.DEMO_SCENARIO ?? 'risky';
   readonly useLiveGitHub = bool('USE_LIVE_GITHUB', false);
   readonly githubToken = process.env.GITHUB_TOKEN ?? '';
@@ -27,9 +27,9 @@ export class ApiGuardConfig {
   readonly githubMaxMatchesPerQuery = integer('GITHUB_MAX_MATCHES_PER_QUERY', 2);
   readonly githubCacheTtlSeconds = integer('GITHUB_CACHE_TTL_SECONDS', 300);
   readonly useLlm = bool('USE_LLM', false);
-  readonly llmProvider = process.env.LLM_PROVIDER === 'anthropic' ? 'anthropic' as const : 'openai' as const;
-  readonly openAiKey = process.env.OPENAI_API_KEY ?? '';
-  readonly openAiModel = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
+  readonly llmProvider = process.env.LLM_PROVIDER === 'anthropic' ? 'anthropic' as const : 'gemini' as const;
+  readonly geminiKey = process.env.GEMINI_API_KEY ?? '';
+  readonly geminiModel = process.env.GEMINI_MODEL ?? 'gemini-3.5-flash';
   readonly anthropicKey = process.env.ANTHROPIC_API_KEY ?? '';
   readonly anthropicModel = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
   readonly llmTimeoutMs = integer('LLM_TIMEOUT_MS', 7000);

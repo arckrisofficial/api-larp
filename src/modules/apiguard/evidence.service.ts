@@ -5,7 +5,7 @@ import type { EvidenceDiscoveryResult } from './evidence.provider.js';
 import { GitHubEvidenceProvider } from './github-evidence.provider.js';
 import { SnapshotEvidenceProvider } from './snapshot-evidence.provider.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig, SnapshotEvidenceProvider, GitHubEvidenceProvider] })
 export class EvidenceService {
   constructor(
     private readonly config: ApiGuardConfig,

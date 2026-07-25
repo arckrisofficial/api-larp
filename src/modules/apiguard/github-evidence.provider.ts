@@ -17,7 +17,7 @@ interface RepositoryMeta {
   commitSha: string;
 }
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 export class GitHubEvidenceProvider implements EvidenceProvider {
   private readonly cache = new Map<string, CachedValue>();
 

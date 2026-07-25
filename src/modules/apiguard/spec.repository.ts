@@ -1,10 +1,10 @@
 import { Injectable } from '@nitrostack/core';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { ScenarioSpecs } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 
-@Injectable()
+@Injectable({ deps: [ApiGuardConfig] })
 export class SpecRepository {
   constructor(private readonly config: ApiGuardConfig) {}
 
@@ -20,12 +20,19 @@ export class SpecRepository {
     return parsed as Record<string, unknown>;
   }
 
-  async getScenario(scenarioId = this.config.demoScenario): Promise<ScenarioSpecs> {
+  async listScenarios(): Promise<string[]> {
+    const scenariosPath = path.resolve(process.cwd(), this.config.fixturesDir, 'scenarios');
+    const entries = await readdir(scenariosPath, { withFileTypes: true });
+    return entries.filter(e => e.isDirectory() && /^[a-z0-9_-]+$/i.test(e.name)).map(e => e.name);
+  }
+
+  async getScenario(scenarioId?: string): Promise<ScenarioSpecs> {
+    const id = scenarioId || this.config.demoScenario;
     const [baseline, candidate] = await Promise.all([
-      this.readJson(this.scenarioPath(scenarioId, 'baseline.openapi.json')),
-      this.readJson(this.scenarioPath(scenarioId, 'candidate.openapi.json'))
+      this.readJson(this.scenarioPath(id, 'baseline.openapi.json')),
+      this.readJson(this.scenarioPath(id, 'candidate.openapi.json'))
     ]);
-    return { scenarioId, baseline, candidate };
+    return { scenarioId: id, baseline, candidate };
   }
 
   async getSpec(scenarioId: string, kind: 'baseline' | 'candidate'): Promise<Record<string, unknown>> {
