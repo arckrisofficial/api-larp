@@ -1,0 +1,74 @@
+{
+  "widgets": [
+    {
+      "uri": "api-impact-summary",
+      "name": "API Impact Summary",
+      "description": "Shows API changes, consumer evidence, provenance and the human release decision.",
+      "toolName": "run_impact_assessment",
+      "examples": {
+        "request": {
+          "scenarioId": "risky"
+        },
+        "response": {
+          "id": "asm_preview",
+          "scenarioId": "risky",
+          "analysisStatus": "COMPLETE",
+          "decisionStatus": "PENDING",
+          "sourceMode": "snapshot",
+          "classifierMode": "deterministic-fallback",
+          "overallSeverity": "HIGH",
+          "durationMs": 742,
+          "createdAt": "2026-07-25T08:30:00.000Z",
+          "updatedAt": "2026-07-25T08:30:00.000Z",
+          "version": 1,
+          "changes": [
+            {
+              "id": "chg_preview",
+              "code": "REQUIRED_PROPERTY_REMOVED",
+              "breaking": true,
+              "operation": "GET /api/user",
+              "location": "response",
+              "jsonPath": "$response.name",
+              "rationale": "Required property name was removed.",
+              "sourcePointers": {}
+            }
+          ],
+          "evidence": [
+            {
+              "id": "ev_preview",
+              "sourceMode": "snapshot",
+              "capturedAt": "2026-07-25T08:30:00.000Z",
+              "repository": "api-larp-demo/react-consumer",
+              "branch": "main",
+              "commitSha": "a1b2c3d4e5f6",
+              "searchQuery": "name",
+              "generatedFromChangeIds": [
+                "chg_preview"
+              ],
+              "filePath": "src/api/userProfile.ts",
+              "lineStart": 12,
+              "lineEnd": 13,
+              "snippet": "const displayName = response.name;",
+              "contentHash": "preview",
+              "classification": "CONFIRMED_IMPACT",
+              "confidence": "HIGH",
+              "matchedChangeIds": [
+                "chg_preview"
+              ],
+              "reasoning": "The production consumer reads the removed response.name field.",
+              "migrationActions": []
+            }
+          ],
+          "limitations": [
+            "Preview data uses a pinned repository snapshot."
+          ],
+          "baselineSpecHash": "baseline-preview-hash",
+          "candidateSpecHash": "candidate-preview-hash",
+          "repositoryCommits": {
+            "api-larp-demo/react-consumer": "a1b2c3d4e5f6"
+          }
+        }
+      }
+    }
+  ]
+}
