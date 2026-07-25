@@ -1,28 +1,16 @@
 {
-  "version": 9,
-  "updatedAt": "2026-07-25T19:52:39.480Z",
+  "version": 1,
+  "updatedAt": "2026-07-25T20:10:54.974Z",
   "repositories": [
     {
-      "id": "b1cd304085fc",
-      "owner": "test-org",
-      "name": "test-repo",
+      "id": "6407e4525316",
+      "owner": "arckrisofficial",
+      "name": "api-larp",
       "branch": "main",
-      "lastKnownCommitSha": "sha123456789",
+      "lastKnownCommitSha": "4baaaa59b24c659dd489bb3e93a34682af0c8028",
       "status": "ACTIVE",
-      "addedAt": "2026-07-25T19:52:39.477Z",
-      "addedBy": "test-actor"
-    },
-    {
-      "id": "b93e5045e169",
-      "owner": "test-org",
-      "name": "removable-repo",
-      "branch": "main",
-      "lastKnownCommitSha": "sha999",
-      "status": "INACTIVE",
-      "addedAt": "2026-07-25T19:52:39.479Z",
-      "addedBy": "test-actor",
-      "removedAt": "2026-07-25T19:52:39.480Z",
-      "removalReason": "Declassifying for testing"
+      "addedAt": "2026-07-25T20:10:54.974Z",
+      "addedBy": "bootstrap"
     }
   ]
 }

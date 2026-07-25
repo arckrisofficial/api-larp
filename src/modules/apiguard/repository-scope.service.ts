@@ -39,7 +39,9 @@ export class RepositoryScopeService {
   constructor(
     private readonly config: ApiGuardConfig,
     private readonly registry: RepositoryScopeRepository
-  ) {}
+  ) {
+    void this.bootstrapIfEmpty();
+  }
 
   // ── Public API ───────────────────────────────────────────────────────────
 

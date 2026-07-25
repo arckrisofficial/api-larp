@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { unlinkSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { test, after } from 'node:test';
 import { ApiGuardConfig } from '../../src/modules/apiguard/config.service.js';
 import { RepositoryScopeRepository } from '../../src/modules/apiguard/repository-scope.repository.js';
 import { RepositoryScopeService } from '../../src/modules/apiguard/repository-scope.service.js';
+
+const TEST_SCOPE_FILE = '.apiguard/test-repository-scope.json';
+process.env.SCOPE_FILE_PATH = TEST_SCOPE_FILE;
+
+after(() => {
+  try {
+    const p = resolve(TEST_SCOPE_FILE);
+    if (existsSync(p)) unlinkSync(p);
+  } catch {}
+});
 
 test('RepositoryScopeRepository: empty state and upsert state changes', () => {
   const config = new ApiGuardConfig();

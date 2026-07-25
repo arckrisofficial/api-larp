@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useWidgetSDK } from '@nitrostack/widgets';
 
 type Assessment = {
@@ -19,7 +19,6 @@ type Assessment = {
   decision?: { reason?: string; actorDisplayName: string; decidedAt: string };
 };
 
-// Fallback preview data — shown when window.openai is not available (e.g. direct browser open)
 const PREVIEW_DATA: Assessment = {
   id: 'asm_preview',
   version: 1,
@@ -53,10 +52,272 @@ function unwrapToolResult(value: unknown): Assessment | null {
   return (candidate?.structuredContent ?? candidate?.data ?? value) as Assessment;
 }
 
+const severityColor = { HIGH: '#b42318', MEDIUM: '#b54708', LOW: '#067647' } as const;
+
+const styles = {
+  widget: {
+    padding: 24,
+    border: '1px solid #e4e7ec',
+    borderRadius: 10,
+    background: '#ffffff',
+    color: '#101828',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: 14,
+    lineHeight: 1.5,
+    boxShadow: '0 1px 3px rgba(16,24,40,.1), 0 1px 2px rgba(16,24,40,.06)',
+  } as React.CSSProperties,
+  banner: {
+    marginBottom: 20,
+    padding: '10px 14px',
+    borderRadius: 8,
+    background: '#fffaeb',
+    border: '1px solid #f79009',
+    fontSize: 12,
+    color: '#b54708',
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+  } as React.CSSProperties,
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    color: '#667085',
+    textTransform: 'uppercase' as const,
+    marginBottom: 4,
+  } as React.CSSProperties,
+  title: {
+    margin: 0,
+    fontSize: 20,
+    fontWeight: 600,
+    color: '#101828',
+    lineHeight: 1.3,
+  } as React.CSSProperties,
+  assessmentId: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#667085',
+    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+  } as React.CSSProperties,
+  badge: (severity: keyof typeof severityColor) => ({
+    background: severityColor[severity],
+    color: '#ffffff',
+    fontWeight: 800,
+    fontSize: 11,
+    padding: '6px 12px',
+    borderRadius: 999,
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase' as const,
+    whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
+  }) as React.CSSProperties,
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 12,
+    marginTop: 24,
+  } as React.CSSProperties,
+  stat: {
+    padding: 14,
+    borderRadius: 8,
+    background: '#f8f9fb',
+    border: '1px solid #eaecf0',
+  } as React.CSSProperties,
+  statLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#667085',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.04em',
+    marginBottom: 4,
+  } as React.CSSProperties,
+  statValue: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#101828',
+  } as React.CSSProperties,
+  section: {
+    marginTop: 28,
+  } as React.CSSProperties,
+  sectionTitle: {
+    margin: '0 0 12px',
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#101828',
+    paddingBottom: 8,
+    borderBottom: '1px solid #eaecf0',
+  } as React.CSSProperties,
+  changeCard: (breaking: boolean) => ({
+    padding: 14,
+    paddingLeft: 16,
+    borderLeft: `3px solid ${breaking ? '#d92d20' : '#12b76a'}`,
+    background: '#f8f9fb',
+    borderRadius: 6,
+    marginBottom: 8,
+  }) as React.CSSProperties,
+  changeCode: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#101828',
+    marginBottom: 4,
+    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+  } as React.CSSProperties,
+  changeOperation: {
+    fontSize: 12,
+    color: '#475467',
+    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+    marginBottom: 6,
+  } as React.CSSProperties,
+  changeRationale: {
+    margin: 0,
+    fontSize: 13,
+    color: '#475467',
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+  evidenceCard: {
+    padding: 14,
+    border: '1px solid #eaecf0',
+    borderRadius: 8,
+    marginBottom: 8,
+  } as React.CSSProperties,
+  evidenceHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  } as React.CSSProperties,
+  evidenceRepo: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#101828',
+  } as React.CSSProperties,
+  evidenceClass: (classification: string) => ({
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '3px 8px',
+    borderRadius: 4,
+    background: classification.includes('IMPACT') ? '#fef3f2' : '#f0fdf4',
+    color: classification.includes('IMPACT') ? '#b42318' : '#067647',
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase' as const,
+  }) as React.CSSProperties,
+  evidencePath: {
+    fontSize: 12,
+    color: '#475467',
+    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+    marginBottom: 6,
+  } as React.CSSProperties,
+  evidenceReasoning: {
+    margin: 0,
+    fontSize: 13,
+    color: '#475467',
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+  limitationsList: {
+    margin: 0,
+    paddingLeft: 20,
+    fontSize: 13,
+    color: '#475467',
+    lineHeight: 1.6,
+  } as React.CSSProperties,
+  actionsBar: {
+    marginTop: 28,
+    paddingTop: 20,
+    borderTop: '1px solid #eaecf0',
+  } as React.CSSProperties,
+  label: {
+    display: 'block',
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#344054',
+    marginBottom: 6,
+  } as React.CSSProperties,
+  textarea: {
+    width: '100%',
+    minHeight: 64,
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: '1px solid #d0d5dd',
+    fontSize: 13,
+    color: '#101828',
+    background: '#ffffff',
+    resize: 'vertical' as const,
+    lineHeight: 1.5,
+    fontFamily: 'inherit',
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+  buttonRow: {
+    display: 'flex',
+    gap: 10,
+    marginTop: 12,
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  button: (variant: 'primary' | 'danger' | 'ghost', disabled: boolean) => ({
+    padding: '10px 16px',
+    border: variant === 'ghost' ? '1px solid #d0d5dd' : 0,
+    borderRadius: 8,
+    background: disabled ? '#f2f4f7' : variant === 'primary' ? '#067647' : variant === 'danger' ? '#b42318' : '#ffffff',
+    color: disabled ? '#98a2b3' : variant === 'ghost' ? '#344054' : '#ffffff',
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+    transition: 'background 150ms ease-out, opacity 150ms ease-out',
+  }) as React.CSSProperties,
+  disabledHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#667085',
+  } as React.CSSProperties,
+  errorBlock: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    background: '#fef3f2',
+    border: '1px solid #fecdca',
+    color: '#b42318',
+    fontSize: 13,
+  } as React.CSSProperties,
+  fallbackButton: {
+    marginTop: 8,
+    padding: '6px 10px',
+    border: '1px solid #d0d5dd',
+    borderRadius: 6,
+    background: '#ffffff',
+    color: '#344054',
+    fontSize: 12,
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  decisionResult: {
+    marginTop: 28,
+    padding: 16,
+    borderRadius: 8,
+    background: '#ecfdf3',
+    border: '1px solid #a6f4c5',
+  } as React.CSSProperties,
+  decisionLabel: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#067647',
+    marginBottom: 4,
+  } as React.CSSProperties,
+  decisionReason: {
+    margin: 0,
+    fontSize: 13,
+    color: '#475467',
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+};
+
 export default function ApiImpactSummary() {
   const { isReady, getToolOutput, callTool, sendFollowUpMessage } = useWidgetSDK();
 
-  // initialise from SDK if available, otherwise fall back to preview data
   const sdkOutput = isReady ? unwrapToolResult(getToolOutput()) : null;
   const [data, setData] = useState<Assessment | null>(sdkOutput ?? PREVIEW_DATA);
   const [reason, setReason] = useState('The React and Python consumers still rely on the old contract.');
@@ -64,18 +325,12 @@ export default function ApiImpactSummary() {
   const [error, setError] = useState('');
   const isPreviewMode = !isReady;
 
-  // when SDK becomes ready after mount, swap preview data for real data
   useEffect(() => {
     if (isReady) {
       const live = unwrapToolResult(getToolOutput());
       if (live) setData(live);
     }
-  }, [isReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const tone = useMemo(
-    () => data?.overallSeverity === 'HIGH' ? '#b42318' : data?.overallSeverity === 'MEDIUM' ? '#b54708' : '#067647',
-    [data]
-  );
+  }, [isReady]);
 
   async function callDecision(decision: 'APPROVE' | 'BLOCK') {
     if (!data || isPreviewMode) return;
@@ -107,87 +362,133 @@ export default function ApiImpactSummary() {
     }
   }
 
-  if (!data) return <div style={{ padding: 20 }}>Loading APIGuard assessment…</div>;
+  if (!data) return <div style={{ padding: 20, fontSize: 13, color: '#667085' }}>Loading assessment...</div>;
 
   return (
-    <main style={{ padding: 18, border: '1px solid rgba(120,130,150,.28)', borderRadius: 16, background: '#fff', color: '#172033', boxShadow: '0 10px 30px rgba(20,30,55,.08)' }}>
+    <main style={styles.widget}>
       {isPreviewMode && (
-        <div style={{ marginBottom: 12, padding: '6px 12px', borderRadius: 8, background: '#fffaeb', border: '1px solid #f79009', fontSize: 12, color: '#b54708' }}>
-          ⚠ Preview mode — open this widget via NitroStack Studio for live assessment data.
+        <div style={styles.banner}>
+          Preview mode — open via NitroStack Studio for live assessment data.
         </div>
       )}
 
-      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+      <header style={styles.header}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1, color: '#475467' }}>APIGUARD RELEASE EVIDENCE</div>
-          <h1 style={{ margin: '6px 0 4px', fontSize: 24 }}>Consumer impact assessment</h1>
-          <div style={{ color: '#667085', fontSize: 13 }}>{data.id}</div>
+          <div style={styles.eyebrow}>APIGuard Release Evidence</div>
+          <h1 style={styles.title}>Consumer impact assessment</h1>
+          <div style={styles.assessmentId}>{data.id}</div>
         </div>
-        <div style={{ background: tone, color: 'white', fontWeight: 800, padding: '8px 12px', borderRadius: 999 }}>{data.overallSeverity}</div>
+        <span style={styles.badge(data.overallSeverity)}>
+          {data.overallSeverity}
+        </span>
       </header>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 10, marginTop: 16 }}>
-        {([['Evidence', data.sourceMode], ['Classifier', data.classifierMode], ['Decision', data.decisionStatus]] as const).map(([key, value]) => (
-          <div key={key} style={{ padding: 12, borderRadius: 12, background: '#f2f4f7' }}>
-            <div style={{ fontSize: 11, color: '#667085', textTransform: 'uppercase' }}>{key}</div>
-            <strong style={{ fontSize: 13 }}>{value}</strong>
+      <div style={styles.statsGrid}>
+        {([
+          ['Evidence', data.sourceMode],
+          ['Classifier', data.classifierMode],
+          ['Decision', data.decisionStatus],
+        ] as const).map(([label, value]) => (
+          <div key={label} style={styles.stat}>
+            <div style={styles.statLabel}>{label}</div>
+            <div style={styles.statValue}>{value}</div>
           </div>
         ))}
+      </div>
+
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Contract changes</h2>
+        <div>
+          {data.changes.map((change) => (
+            <div key={change.id} style={styles.changeCard(change.breaking)}>
+              <div style={styles.changeCode}>{change.code}</div>
+              <div style={styles.changeOperation}>
+                {change.operation}{change.jsonPath ? ` \u00b7 ${change.jsonPath}` : ''}
+              </div>
+              <p style={styles.changeRationale}>{change.rationale}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
-      <h2 style={{ fontSize: 16, marginTop: 20 }}>Contract changes</h2>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {data.changes.map((change) => (
-          <article key={change.id} style={{ padding: 12, borderLeft: `4px solid ${change.breaking ? '#d92d20' : '#12b76a'}`, background: '#f9fafb', borderRadius: 8 }}>
-            <strong>{change.code}</strong>
-            <div style={{ fontSize: 13, color: '#475467' }}>{change.operation} {change.jsonPath ?? ''}</div>
-            <p style={{ margin: '5px 0 0', fontSize: 13 }}>{change.rationale}</p>
-          </article>
-        ))}
-      </div>
-
-      <h2 style={{ fontSize: 16, marginTop: 20 }}>Consumer evidence</h2>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {data.evidence.map((evidence) => (
-          <article key={evidence.id} style={{ padding: 12, border: '1px solid #eaecf0', borderRadius: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-              <strong>{evidence.repository}</strong><span style={{ fontSize: 12, fontWeight: 800 }}>{evidence.classification}</span>
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Consumer evidence</h2>
+        <div>
+          {data.evidence.map((evidence) => (
+            <div key={evidence.id} style={styles.evidenceCard}>
+              <div style={styles.evidenceHeader}>
+                <span style={styles.evidenceRepo}>{evidence.repository}</span>
+                <span style={styles.evidenceClass(evidence.classification)}>
+                  {evidence.classification}
+                </span>
+              </div>
+              <div style={styles.evidencePath}>
+                {evidence.filePath}:{evidence.lineStart} &middot; {evidence.commitSha.slice(0, 8)}
+              </div>
+              <p style={styles.evidenceReasoning}>{evidence.reasoning}</p>
             </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#475467', marginTop: 4 }}>{evidence.filePath}:{evidence.lineStart} · {evidence.commitSha.slice(0, 8)}</div>
-            <p style={{ fontSize: 13, marginBottom: 0 }}>{evidence.reasoning}</p>
-          </article>
-        ))}
-      </div>
+          ))}
+        </div>
+      </section>
 
       {data.limitations.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 16, marginTop: 20 }}>Limitations</h2>
-          <ul style={{ paddingLeft: 20, fontSize: 13 }}>{data.limitations.map((item, index) => <li key={index}>{item}</li>)}</ul>
-        </>
+        <section style={styles.section}>
+          <h2 style={styles.sectionTitle}>Limitations</h2>
+          <ul style={styles.limitationsList}>
+            {data.limitations.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {data.decisionStatus === 'PENDING' ? (
-        <section style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #eaecf0' }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>Block reason</label>
-          <textarea value={reason} onChange={(event: { target: { value: string } }) => setReason(event.target.value)} rows={2} style={{ width: '100%', margin: '6px 0 10px', padding: 10, borderRadius: 8, border: '1px solid #d0d5dd' }} />
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button disabled={busy || isPreviewMode} onClick={() => callDecision('APPROVE')} style={{ padding: '9px 14px', border: 0, borderRadius: 8, background: isPreviewMode ? '#aaa' : '#067647', color: 'white', fontWeight: 800, cursor: isPreviewMode ? 'not-allowed' : 'pointer' }}>Approve</button>
-            <button disabled={busy || isPreviewMode} onClick={() => callDecision('BLOCK')} style={{ padding: '9px 14px', border: 0, borderRadius: 8, background: isPreviewMode ? '#aaa' : '#b42318', color: 'white', fontWeight: 800, cursor: isPreviewMode ? 'not-allowed' : 'pointer' }}>Block pending migration</button>
+        <div style={styles.actionsBar}>
+          <label style={styles.label}>Block reason</label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={2}
+            style={styles.textarea}
+          />
+          <div style={styles.buttonRow}>
+            <button
+              disabled={busy || isPreviewMode}
+              onClick={() => callDecision('APPROVE')}
+              style={styles.button('primary', busy || isPreviewMode)}
+            >
+              Approve release
+            </button>
+            <button
+              disabled={busy || isPreviewMode}
+              onClick={() => callDecision('BLOCK')}
+              style={styles.button('danger', busy || isPreviewMode)}
+            >
+              Block pending migration
+            </button>
           </div>
-          {isPreviewMode && <div style={{ marginTop: 8, fontSize: 12, color: '#667085' }}>Buttons are disabled in preview mode. Open via Studio to interact.</div>}
-          {error && (
-            <div style={{ marginTop: 10, color: '#b42318', fontSize: 13 }}>
-              {error}
-              <br />
-              <button onClick={sendFallback} style={{ marginTop: 8, padding: '7px 10px' }}>Send typed-chat fallback</button>
+          {isPreviewMode && (
+            <div style={styles.disabledHint}>
+              Actions disabled in preview. Open via Studio to interact.
             </div>
           )}
-        </section>
+          {error && (
+            <div style={styles.errorBlock}>
+              {error}
+              <br />
+              <button onClick={sendFallback} style={styles.fallbackButton}>
+                Send typed-chat fallback
+              </button>
+            </div>
+          )}
+        </div>
       ) : (
-        <section style={{ marginTop: 20, padding: 14, borderRadius: 10, background: '#ecfdf3' }}>
-          <strong>{data.decisionStatus}</strong>
-          {data.decision?.reason && <p style={{ marginBottom: 0 }}>{data.decision.reason}</p>}
-        </section>
+        <div style={styles.decisionResult}>
+          <div style={styles.decisionLabel}>{data.decisionStatus}</div>
+          {data.decision?.reason && (
+            <p style={styles.decisionReason}>{data.decision.reason}</p>
+          )}
+        </div>
       )}
     </main>
   );
