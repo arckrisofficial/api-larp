@@ -1,4 +1,4 @@
-import { ExecutionContext, ToolDecorator as Tool, Widget, z } from '@nitrostack/core';
+import { ExecutionContext, ToolDecorator as Tool, z } from '@nitrostack/core';
 import { sha256 } from '../../domain/hash.js';
 import { ApiGuardConfig } from './config.service.js';
 import { AssessmentService } from './assessment.service.js';
@@ -123,7 +123,6 @@ export class ApiGuardTools {
     invocation: { invoking: 'Building the API release evidence package…', invoked: 'API release evidence package ready' },
     examples: { request: { scenarioId: 'risky' }, response: WIDGET_EXAMPLE }
   })
-  @Widget('api-impact-summary')
   async runImpactAssessment(input: { scenarioId: string }, ctx: ExecutionContext) {
     const assessment = await this.assessmentService.run(input.scenarioId);
     ctx.logger.info('Impact assessment completed', {
@@ -155,7 +154,6 @@ export class ApiGuardTools {
       response: { ...WIDGET_EXAMPLE, decisionStatus: 'BLOCKED_PENDING_MIGRATION', version: 2 }
     }
   })
-  @Widget('api-impact-summary')
   async recordDecision(
     input: {
       assessmentId: string;
@@ -179,5 +177,16 @@ export class ApiGuardTools {
       version: assessment.version
     });
     return assessment;
+  }
+
+  @Tool({
+    name: 'test_hello_world',
+    description: 'A simple generic tool to verify MCP visibility.',
+    inputSchema: z.object({}),
+    invocation: { invoking: 'Saying hello…', invoked: 'Hello said' },
+    examples: { request: {}, response: { message: 'Hello World' } }
+  })
+  async testHelloWorld(input: {}, ctx: ExecutionContext) {
+    return { message: 'Hello World' };
   }
 }
