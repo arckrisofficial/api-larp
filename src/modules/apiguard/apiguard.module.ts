@@ -15,7 +15,7 @@ import { RepositoryScopeService } from './repository-scope.service.js';
 import { ApiGuardTools } from './apiguard.tools.js';
 import { ApiGuardResources } from './apiguard.resources.js';
 import { ApiGuardPrompts } from './apiguard.prompts.js';
-import { SystemHealth } from './system.health.js';
+import { SystemLiveness, SystemReadiness } from './system.health.js';
 
 @Module({
   name: 'apiguard',
@@ -35,7 +35,8 @@ import { SystemHealth } from './system.health.js';
     AssessmentService,
     RepositoryScopeRepository,
     RepositoryScopeService,
-    SystemHealth
+    SystemLiveness,
+    SystemReadiness
   ],
   exports: [AssessmentService, ContractService, EvidenceService]
 })

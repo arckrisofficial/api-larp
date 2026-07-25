@@ -48,10 +48,33 @@ export class EvidenceSnapshotRepository {
   }
 
   getLatestForScenario(scenarioId: string): EvidenceSnapshotV2 | undefined {
-    const matches: EvidenceSnapshotV2[] = [];
+    let matches: EvidenceSnapshotV2[] = [];
     for (const snap of this.memoryStore.values()) {
       if (snap.scenarioId === scenarioId) matches.push(snap);
     }
+
+    // Scan disk for missing snapshots
+    try {
+      const snapshotsDir = resolve(process.cwd(), '.apiguard', 'snapshots');
+      if (existsSync(snapshotsDir)) {
+        const { readdirSync } = require('node:fs');
+        const files = readdirSync(snapshotsDir);
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            const snapshotId = file.replace('.json', '');
+            if (!this.memoryStore.has(snapshotId)) {
+              const snap = this.get(snapshotId);
+              if (snap && snap.scenarioId === scenarioId) {
+                matches.push(snap);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[EvidenceSnapshotRepository] Failed to scan snapshot directory:', err);
+    }
+
     if (matches.length > 0) {
       matches.sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt));
       return structuredClone(matches[0]);

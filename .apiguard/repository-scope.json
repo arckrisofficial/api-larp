@@ -1,16 +1,16 @@
 {
-  "version": 1,
-  "updatedAt": "2026-07-25T20:10:54.974Z",
+  "version": 2,
+  "updatedAt": "2026-07-25T21:18:55.324Z",
   "repositories": [
     {
       "id": "6407e4525316",
       "owner": "arckrisofficial",
       "name": "api-larp",
       "branch": "main",
-      "lastKnownCommitSha": "4baaaa59b24c659dd489bb3e93a34682af0c8028",
+      "lastKnownCommitSha": "d6533c4a5d3885318f6ff2cfbf4bebb7541ce2d6",
       "status": "ACTIVE",
       "addedAt": "2026-07-25T20:10:54.974Z",
-      "addedBy": "bootstrap"
+      "addedBy": "e2e-tester"
     }
   ]
 }

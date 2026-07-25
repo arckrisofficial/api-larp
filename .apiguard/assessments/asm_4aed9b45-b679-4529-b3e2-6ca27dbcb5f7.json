@@ -1,0 +1,41 @@
+{
+  "id": "asm_4aed9b45-b679-4529-b3e2-6ca27dbcb5f7",
+  "scenarioId": "audit_test_scen",
+  "analysisStatus": "COMPLETE",
+  "decisionStatus": "BLOCKED_PENDING_MIGRATION",
+  "baselineSpecHash": "9e6264b145e4914dae08a35ab3738b7853e4a44b22fecacbb15a4f72df3adced",
+  "candidateSpecHash": "9e6264b145e4914dae08a35ab3738b7853e4a44b22fecacbb15a4f72df3adced",
+  "repositoryCommits": {
+    "arckrisofficial/api-larp": "d6533c4a5d3885318f6ff2cfbf4bebb7541ce2d6"
+  },
+  "sourceMode": "live",
+  "classifierMode": "llm",
+  "repositoryScopeVersion": 2,
+  "evidenceSnapshotId": "snap_c3016146-e5e",
+  "repositoriesExpected": [
+    "arckrisofficial/api-larp"
+  ],
+  "repositoriesChecked": [
+    "arckrisofficial/api-larp"
+  ],
+  "repositoriesFailed": [],
+  "coverageRatio": 1,
+  "changes": [],
+  "evidence": [],
+  "overallSeverity": "LOW",
+  "limitations": [
+    "No consumer code evidence items were provided for risk assessment."
+  ],
+  "durationMs": 2,
+  "createdAt": "2026-07-25T21:19:49.348Z",
+  "updatedAt": "2026-07-25T21:19:49.349Z",
+  "version": 2,
+  "decision": {
+    "decision": "BLOCKED_PENDING_MIGRATION",
+    "reason": "E2E test verification",
+    "actorId": "e2e-tester",
+    "actorDisplayName": "Hackathon Judge",
+    "decidedAt": "2026-07-25T21:19:49.349Z",
+    "idempotencyKey": "e2e-test-key-1"
+  }
+}

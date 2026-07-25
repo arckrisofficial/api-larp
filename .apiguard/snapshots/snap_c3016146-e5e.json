@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "snapshotId": "snap_c3016146-e5e",
+  "scenarioId": "audit_test_scen",
+  "origin": "GITHUB",
+  "baselineSpecHash": "9e6264b145e4914dae08a35ab3738b7853e4a44b22fecacbb15a4f72df3adced",
+  "candidateSpecHash": "9e6264b145e4914dae08a35ab3738b7853e4a44b22fecacbb15a4f72df3adced",
+  "repositoryScopeVersion": 2,
+  "queryPlanHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "generatedAt": "2026-07-25T21:19:49.344Z",
+  "repositoriesExpected": [
+    {
+      "owner": "arckrisofficial",
+      "name": "api-larp",
+      "branch": "main",
+      "commitSha": "d6533c4a5d3885318f6ff2cfbf4bebb7541ce2d6"
+    }
+  ],
+  "repositoriesChecked": [
+    "arckrisofficial/api-larp"
+  ],
+  "repositoriesFailed": [],
+  "queries": [],
+  "results": []
+}
