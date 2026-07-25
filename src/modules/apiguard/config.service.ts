@@ -26,6 +26,15 @@ export class ApiGuardConfig {
   readonly githubMaxRequests = integer('GITHUB_MAX_REQUESTS', 40);
   readonly githubMaxMatchesPerQuery = integer('GITHUB_MAX_MATCHES_PER_QUERY', 2);
   readonly githubCacheTtlSeconds = integer('GITHUB_CACHE_TTL_SECONDS', 300);
+  /** Path to the file-backed repository scope JSON store */
+  readonly scopeFilePath = process.env.SCOPE_FILE_PATH ?? '.apiguard/repository-scope.json';
+  /** Comma-separated list of GitHub owners allowed to be added to scope */
+  readonly allowedGithubOwners = (process.env.ALLOWED_GITHUB_OWNERS ?? '')
+    .split(',').map((s: string) => s.trim()).filter(Boolean);
+  /** Maximum number of ACTIVE repositories allowed in scope at one time */
+  readonly maxActiveRepositories = integer('MAX_ACTIVE_REPOSITORIES', 10);
+  /** Bootstrap owner — used to pre-seed the registry from DEMO_GITHUB_REPOSITORIES on first start */
+  readonly bootstrapGithubOwner = process.env.DEMO_GITHUB_OWNER ?? '';
   readonly useLlm = bool('USE_LLM', false);
   readonly llmProvider = (
     process.env.LLM_PROVIDER === 'anthropic' ? 'anthropic' :

@@ -4,35 +4,32 @@ import type { ApiChange, EvidenceItem } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 import type { EvidenceDiscoveryResult, EvidenceProvider, EvidenceSearchQuery } from './evidence.provider.js';
 import { queriesForChanges } from './evidence.provider.js';
+import { RepositoryScopeRepository } from './repository-scope.repository.js';
 
 interface CachedValue {
   expiresAt: number;
   value: EvidenceDiscoveryResult;
 }
 
-interface RepositoryMeta {
-  owner: string;
-  name: string;
-  defaultBranch: string;
-  commitSha: string;
-}
-
-@Injectable({ deps: [ApiGuardConfig] })
+@Injectable({ deps: [ApiGuardConfig, RepositoryScopeRepository] })
 export class GitHubEvidenceProvider implements EvidenceProvider {
   private readonly cache = new Map<string, CachedValue>();
 
-  constructor(private readonly config: ApiGuardConfig) {}
+  constructor(
+    private readonly config: ApiGuardConfig,
+    private readonly scopeRepository: RepositoryScopeRepository
+  ) {}
 
   async discover(_scenarioId: string, changes: ApiChange[]): Promise<EvidenceDiscoveryResult> {
     if (!this.config.githubToken) throw new Error('GITHUB_TOKEN is required when USE_LIVE_GITHUB=true.');
-    if (!this.config.githubOwner || !this.config.githubRepositories.length) {
-      throw new Error('Live GitHub mode requires DEMO_GITHUB_OWNER and DEMO_GITHUB_REPOSITORIES.');
+    const activeRepos = this.scopeRepository.listActive();
+    if (!activeRepos.length) {
+      throw new Error('No active repositories in scope. Use manage_repository_scope to add repositories.');
     }
 
     const queries = queriesForChanges(changes);
     const cacheKey = sha256({
-      owner: this.config.githubOwner,
-      repositories: this.config.githubRepositories,
+      repos: activeRepos.map((r) => `${r.owner}/${r.name}@${r.lastKnownCommitSha}`),
       queries
     });
     const cached = this.cache.get(cacheKey);
@@ -48,19 +45,15 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
     };
 
     const items: EvidenceItem[] = [];
-    const repositories: RepositoryMeta[] = [];
-    for (const repository of this.config.githubRepositories) {
-      const encodedOwner = encodeURIComponent(this.config.githubOwner);
-      const encodedRepo = encodeURIComponent(repository);
-      const repoPayload = await request(`/repos/${encodedOwner}/${encodedRepo}`);
-      const defaultBranch = String(repoPayload.default_branch ?? 'main');
-      const commitPayload = await request(`/repos/${encodedOwner}/${encodedRepo}/commits/${encodeURIComponent(defaultBranch)}`);
-      const commitSha = String(commitPayload.sha ?? '');
-      if (!commitSha) throw new Error(`GitHub did not return a commit SHA for ${repository}.`);
-      repositories.push({ owner: this.config.githubOwner, name: repository, defaultBranch, commitSha });
+    for (const managedRepo of activeRepos) {
+      const encodedOwner = encodeURIComponent(managedRepo.owner);
+      const encodedRepo = encodeURIComponent(managedRepo.name);
+      // Use pinned commit SHA from scope registry for reproducibility
+      const commitSha = managedRepo.lastKnownCommitSha;
+      const defaultBranch = managedRepo.branch;
 
       for (const query of queries) {
-        const q = `"${query.query}" repo:${this.config.githubOwner}/${repository}`;
+        const q = `"${query.query}" repo:${managedRepo.owner}/${managedRepo.name}`;
         const search = await request(`/search/code?q=${encodeURIComponent(q)}&per_page=${this.config.githubMaxMatchesPerQuery}`);
         const matches = Array.isArray(search.items) ? search.items.slice(0, this.config.githubMaxMatchesPerQuery) : [];
         for (const [index, raw] of matches.entries()) {
@@ -68,13 +61,13 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
           const item = raw as Record<string, unknown>;
           const filePath = String(item.path ?? '');
           if (!filePath) continue;
-          const source = await this.fetchSource(request, repository, filePath, commitSha);
+          const source = await this.fetchSource(request, managedRepo.owner, managedRepo.name, filePath, commitSha);
           const excerpt = excerptFor(source, query.query, this.config.maxSnippetChars);
           items.push({
-            id: `live_${sha256([repository, query.id, filePath, index, commitSha]).slice(0, 12)}`,
+            id: `live_${sha256([managedRepo.name, query.id, filePath, index, commitSha]).slice(0, 12)}`,
             sourceMode: 'live',
             capturedAt: new Date().toISOString(),
-            repository: `${this.config.githubOwner}/${repository}`,
+            repository: `${managedRepo.owner}/${managedRepo.name}`,
             branch: defaultBranch,
             commitSha,
             searchQuery: query.query,
@@ -108,15 +101,16 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
 
   private async fetchSource(
     request: (endpoint: string, accept?: string) => Promise<Record<string, unknown>>,
+    owner: string,
     repository: string,
     filePath: string,
     commitSha: string
   ): Promise<string> {
-    const endpoint = `/repos/${encodeURIComponent(this.config.githubOwner)}/${encodeURIComponent(repository)}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(commitSha)}`;
+    const endpoint = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(commitSha)}`;
     const payload = await request(endpoint);
     const content = typeof payload.content === 'string' ? payload.content.replace(/\s/g, '') : '';
     if (!content || payload.encoding !== 'base64') {
-      throw new Error(`Unable to read source content for ${repository}/${filePath}.`);
+      throw new Error(`Unable to read source content for ${owner}/${repository}/${filePath}.`);
     }
     return Buffer.from(content, 'base64').toString('utf8');
   }

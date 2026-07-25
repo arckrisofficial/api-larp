@@ -8,6 +8,8 @@ import { GitHubEvidenceProvider } from './github-evidence.provider.js';
 import { RiskService } from './risk.service.js';
 import { AssessmentRepository } from './assessment.repository.js';
 import { AssessmentService } from './assessment.service.js';
+import { RepositoryScopeRepository } from './repository-scope.repository.js';
+import { RepositoryScopeService } from './repository-scope.service.js';
 import { ApiGuardTools } from './apiguard.tools.js';
 import { ApiGuardResources } from './apiguard.resources.js';
 import { ApiGuardPrompts } from './apiguard.prompts.js';
@@ -27,6 +29,8 @@ import { SystemHealth } from './system.health.js';
     RiskService,
     AssessmentRepository,
     AssessmentService,
+    RepositoryScopeRepository,
+    RepositoryScopeService,
     SystemHealth
   ],
   exports: [AssessmentService]

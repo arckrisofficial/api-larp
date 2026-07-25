@@ -7,6 +7,7 @@ import { ApiGuardConfig } from '../src/modules/apiguard/config.service.js';
 import { EvidenceSnapshotSchema } from '../src/modules/apiguard/evidence.schemas.js';
 import { queriesForChanges } from '../src/modules/apiguard/evidence.provider.js';
 import { GitHubEvidenceProvider } from '../src/modules/apiguard/github-evidence.provider.js';
+import { RepositoryScopeRepository } from '../src/modules/apiguard/repository-scope.repository.js';
 
 async function readJson(file: string): Promise<Record<string, unknown>> {
   const value = JSON.parse(await readFile(file, 'utf8')) as unknown;
@@ -24,7 +25,8 @@ async function main(): Promise<void> {
   const baseline = await readJson(path.join(scenarioDir, 'baseline.openapi.json'));
   const candidate = await readJson(path.join(scenarioDir, 'candidate.openapi.json'));
   const changes = diffOpenApi(baseline, candidate);
-  const provider = new GitHubEvidenceProvider(config);
+  const scopeRepo = new RepositoryScopeRepository(config);
+  const provider = new GitHubEvidenceProvider(config, scopeRepo);
   const live = await provider.discover(scenarioId, changes);
   const queries = queriesForChanges(changes);
   const repoMap = new Map<string, { owner: string; name: string; defaultBranch: string; commitSha: string }>();

@@ -6,6 +6,7 @@ import type { Assessment } from '../../domain/types.js';
 import { AssessmentRepository } from './assessment.repository.js';
 import { DiffService } from './diff.service.js';
 import { EvidenceService } from './evidence.service.js';
+import { RepositoryScopeRepository } from './repository-scope.repository.js';
 import { RiskService } from './risk.service.js';
 import { SpecRepository } from './spec.repository.js';
 
@@ -15,7 +16,8 @@ import { SpecRepository } from './spec.repository.js';
     DiffService,
     EvidenceService,
     RiskService,
-    AssessmentRepository
+    AssessmentRepository,
+    RepositoryScopeRepository
   ]
 })
 export class AssessmentService {
@@ -24,7 +26,8 @@ export class AssessmentService {
     private readonly diffService: DiffService,
     private readonly evidenceService: EvidenceService,
     private readonly riskService: RiskService,
-    private readonly repository: AssessmentRepository
+    private readonly repository: AssessmentRepository,
+    private readonly scopeRepository: RepositoryScopeRepository
   ) {}
 
   async run(scenarioId: string): Promise<Assessment> {
@@ -36,11 +39,13 @@ export class AssessmentService {
     const now = new Date().toISOString();
     const repositoryCommits = Object.fromEntries(discovered.items.map((item) => [item.repository, item.commitSha]));
     const hasReview = risk.evidence.some((item) => item.classification === 'REVIEW_REQUIRED');
+    const scopeVersion = this.scopeRepository.getScope().version;
     const assessment: Assessment = {
       id: `asm_${randomUUID()}`, scenarioId,
       analysisStatus: hasReview ? 'COMPLETE_WITH_WARNINGS' : 'COMPLETE', decisionStatus: 'PENDING',
       baselineSpecHash: sha256(scenario.baseline), candidateSpecHash: sha256(scenario.candidate), repositoryCommits,
       sourceMode: discovered.sourceMode, classifierMode: risk.classifierMode,
+      repositoryScopeVersion: scopeVersion,
       changes, evidence: risk.evidence, overallSeverity: risk.severity,
       limitations: [...discovered.limitations, ...risk.limitations], durationMs: Date.now() - started,
       createdAt: now, updatedAt: now, version: 1

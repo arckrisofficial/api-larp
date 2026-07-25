@@ -91,6 +91,8 @@ export interface Assessment {
   repositoryCommits: Record<string, string>;
   sourceMode: 'snapshot' | 'live';
   classifierMode: 'llm' | 'deterministic-fallback';
+  /** Version of the repository scope registry when this assessment was run */
+  repositoryScopeVersion: number;
   changes: ApiChange[];
   evidence: AssessedEvidence[];
   overallSeverity: 'HIGH' | 'MEDIUM' | 'LOW';

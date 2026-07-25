@@ -5,6 +5,7 @@ import { AssessmentService } from './assessment.service.js';
 import { DiffService } from './diff.service.js';
 import { EvidenceService } from './evidence.service.js';
 import { RiskService } from './risk.service.js';
+import { RepositoryScopeService } from './repository-scope.service.js';
 import { SpecRepository } from './spec.repository.js';
 
 const ScenarioInput = z.object({
@@ -49,7 +50,8 @@ const WIDGET_EXAMPLE = {
     DiffService,
     EvidenceService,
     RiskService,
-    AssessmentService
+    AssessmentService,
+    RepositoryScopeService
   ]
 })
 export class ApiGuardTools {
@@ -59,7 +61,8 @@ export class ApiGuardTools {
     private readonly diffService: DiffService,
     private readonly evidenceService: EvidenceService,
     private readonly riskService: RiskService,
-    private readonly assessmentService: AssessmentService
+    private readonly assessmentService: AssessmentService,
+    private readonly scopeService: RepositoryScopeService
   ) {}
 
   @Tool({
@@ -193,5 +196,67 @@ export class ApiGuardTools {
       version: assessment.version
     });
     return assessment;
+  }
+  @Tool({
+    name: 'manage_repository_scope',
+    description: 'Add or deactivate a GitHub repository in the consumer-impact assessment scope. Adding validates the repository against GitHub, resolves the default branch, and pins the latest commit SHA. Removing marks the repository INACTIVE without deleting historical evidence.',
+    inputSchema: z.object({
+      action: z.enum(['ADD', 'REMOVE']).describe('ADD makes the repository active in the scope. REMOVE deactivates it without deleting evidence.'),
+      owner: z.string().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/).describe('GitHub repository owner (user or organisation).'),
+      repository: z.string().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/).describe('GitHub repository name (without owner prefix).'),
+      branch: z.string().min(1).max(200).optional().describe('Branch to pin. Defaults to the repository default branch.'),
+      reason: z.string().min(5).max(500).describe('Why this repository is being added or removed.'),
+      confirmed: z.literal(true).describe('Must be true. Confirms the operator intends to mutate the assessment scope.')
+    }),
+    invocation: { invoking: 'Updating repository assessment scope…', invoked: 'Repository assessment scope updated' },
+    examples: {
+      request: { action: 'ADD', owner: 'arckrisofficial', repository: 'api-larp', reason: 'This application consumes the User API.', confirmed: true },
+      response: { changed: true, action: 'ADD', repository: { owner: 'arckrisofficial', name: 'api-larp', status: 'ACTIVE' }, snapshotStatus: 'STALE' }
+    }
+  })
+  async manageRepositoryScope(
+    input: {
+      action: 'ADD' | 'REMOVE';
+      owner: string;
+      repository: string;
+      branch?: string;
+      reason: string;
+      confirmed: true;
+    },
+    ctx: ExecutionContext
+  ) {
+    const actorId = this.config.actorId;
+    const result = input.action === 'ADD'
+      ? await this.scopeService.applyAdd({ owner: input.owner, repository: input.repository, branch: input.branch, reason: input.reason, actorId })
+      : await this.scopeService.applyRemove({ owner: input.owner, repository: input.repository, reason: input.reason, actorId });
+    ctx.logger.info('Repository scope updated', { action: input.action, repo: `${input.owner}/${input.repository}`, changed: result.changed });
+    return result;
+  }
+
+  @Tool({
+    name: 'refresh_repository_evidence',
+    description: 'Fetch the latest commit SHA for all active repositories in the assessment scope and invalidate the evidence cache so the next run_impact_assessment uses current code.',
+    inputSchema: z.object({
+      repositories: z.array(z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)).optional().describe('Optional subset of owner/name strings to refresh. Defaults to all active repositories.'),
+      forceRefresh: z.boolean().default(false).describe('When true, clears the evidence cache before re-fetching.')
+    }),
+    invocation: { invoking: 'Refreshing repository commit SHAs…', invoked: 'Repository evidence refreshed' },
+    examples: {
+      request: { forceRefresh: false },
+      response: { refreshed: 1, failed: [], scope: { version: 2 } }
+    }
+  })
+  async refreshRepositoryEvidence(
+    input: { repositories?: string[]; forceRefresh?: boolean },
+    ctx: ExecutionContext
+  ) {
+    const result = await this.scopeService.refreshCommitShas(input.repositories);
+    ctx.logger.info('Repository evidence refreshed', { refreshed: result.refreshed, failed: result.failed.length });
+    return {
+      ...result,
+      nextAction: result.refreshed > 0
+        ? 'Run run_impact_assessment to generate a fresh assessment using the updated commit SHAs.'
+        : 'No repositories were refreshed. Check that there are active repositories in scope.'
+    };
   }
 }

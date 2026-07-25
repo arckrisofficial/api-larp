@@ -1,5 +1,6 @@
 import { ExecutionContext, Injectable, ResourceDecorator as Resource } from '@nitrostack/core';
 import { AssessmentService } from './assessment.service.js';
+import { RepositoryScopeRepository } from './repository-scope.repository.js';
 import { SpecRepository } from './spec.repository.js';
 
 function jsonResource(uri: string, data: unknown) {
@@ -9,11 +10,16 @@ function jsonResource(uri: string, data: unknown) {
 @Injectable({
   deps: [
     SpecRepository,
-    AssessmentService
+    AssessmentService,
+    RepositoryScopeRepository
   ]
 })
 export class ApiGuardResources {
-  constructor(private readonly specs: SpecRepository, private readonly assessments: AssessmentService) {}
+  constructor(
+    private readonly specs: SpecRepository,
+    private readonly assessments: AssessmentService,
+    private readonly scopeRepository: RepositoryScopeRepository
+  ) {}
 
   @Resource({ uri: 'apiguard://scenarios/{scenarioId}/specs/baseline', name: 'Baseline OpenAPI specification', description: 'The currently released OpenAPI contract.', mimeType: 'application/json' })
   async baseline(uri: string, _ctx: ExecutionContext) {
@@ -34,5 +40,15 @@ export class ApiGuardResources {
     const match = /^apiguard:\/\/assessments\/(.+)$/.exec(uri);
     if (!match?.[1]) throw new Error('Invalid assessment resource URI.');
     return jsonResource(uri, this.assessments.get(match[1]));
+  }
+
+  @Resource({
+    uri: 'apiguard://repository-scope',
+    name: 'Repository assessment scope',
+    description: 'Read the current versioned list of active and inactive consumer repositories in the impact assessment scope.',
+    mimeType: 'application/json'
+  })
+  repositoryScope(uri: string, _ctx: ExecutionContext) {
+    return jsonResource(uri, this.scopeRepository.getScope());
   }
 }
