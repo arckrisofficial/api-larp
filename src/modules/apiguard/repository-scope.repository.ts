@@ -77,8 +77,7 @@ export class RepositoryScopeRepository {
       writeFileSync(tmp, JSON.stringify(this.scope, null, 2), 'utf8');
       renameSync(tmp, this.filePath);
     } catch (err) {
-      // Non-fatal: log but do not crash the server on persist error
-      console.error('[RepositoryScopeRepository] Failed to persist scope:', err);
+      throw new Error(`[RepositoryScopeRepository] Failed to persist scope: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

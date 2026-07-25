@@ -56,7 +56,13 @@ export class RepositoryScopeService {
   async applyAdd(input: AddInput): Promise<ScopeChangeResult> {
     this.validateOwner(input.owner);
     this.validateName(input.repository);
-    this.enforceCapacity();
+
+    const existing = this.registry.find(input.owner, input.repository);
+    const isActive = existing?.status === 'ACTIVE';
+
+    if (!isActive) {
+      this.enforceCapacity();
+    }
 
     const { defaultBranch, commitSha } = await this.resolveGitHubMeta(
       input.owner,
@@ -64,11 +70,22 @@ export class RepositoryScopeService {
       input.branch
     );
 
-    const existing = this.registry.find(input.owner, input.repository);
-    const now = new Date().toISOString();
+    if (isActive && existing?.branch === defaultBranch && existing?.lastKnownCommitSha === commitSha) {
+      const scope = this.registry.getScope();
+      const active = scope.repositories.filter((r) => r.status === 'ACTIVE').length;
+      return {
+        changed: false,
+        action: 'ADD',
+        repository: { owner: existing.owner, name: existing.name, branch: existing.branch, lastKnownCommitSha: existing.lastKnownCommitSha, status: 'ACTIVE' },
+        scope: { version: scope.version, activeCount: active, totalCount: scope.repositories.length },
+        snapshotStatus: 'STALE',
+        message: `${input.owner}/${input.repository} is already ACTIVE and pinned to the latest commit. No changes made.`
+      };
+    }
 
+    const now = new Date().toISOString();
     const managed: ManagedRepository = {
-      id: '',                          // RepositoryScopeRepository derives the ID
+      id: '',
       owner: input.owner,
       name: input.repository,
       branch: defaultBranch,
