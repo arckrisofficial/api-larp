@@ -1,10 +1,12 @@
 import { Module } from '@nitrostack/core';
 import { ApiGuardConfig } from './config.service.js';
 import { SpecRepository } from './spec.repository.js';
+import { ContractService } from './contract.service.js';
 import { DiffService } from './diff.service.js';
 import { EvidenceService } from './evidence.service.js';
 import { SnapshotEvidenceProvider } from './snapshot-evidence.provider.js';
 import { GitHubEvidenceProvider } from './github-evidence.provider.js';
+import { EvidenceSnapshotRepository } from './evidence-snapshot.repository.js';
 import { RiskService } from './risk.service.js';
 import { AssessmentRepository } from './assessment.repository.js';
 import { AssessmentService } from './assessment.service.js';
@@ -22,9 +24,11 @@ import { SystemHealth } from './system.health.js';
   providers: [
     ApiGuardConfig,
     SpecRepository,
+    ContractService,
     DiffService,
     SnapshotEvidenceProvider,
     GitHubEvidenceProvider,
+    EvidenceSnapshotRepository,
     EvidenceService,
     RiskService,
     AssessmentRepository,
@@ -33,6 +37,6 @@ import { SystemHealth } from './system.health.js';
     RepositoryScopeService,
     SystemHealth
   ],
-  exports: [AssessmentService]
+  exports: [AssessmentService, ContractService, EvidenceService]
 })
 export class ApiGuardModule {}

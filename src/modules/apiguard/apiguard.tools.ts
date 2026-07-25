@@ -2,6 +2,7 @@ import { ExecutionContext, Injectable, ToolDecorator as Tool, Widget, z } from '
 import { sha256 } from '../../domain/hash.js';
 import { ApiGuardConfig } from './config.service.js';
 import { AssessmentService } from './assessment.service.js';
+import { ContractService } from './contract.service.js';
 import { DiffService } from './diff.service.js';
 import { EvidenceService } from './evidence.service.js';
 import { RiskService } from './risk.service.js';
@@ -9,44 +10,14 @@ import { RepositoryScopeService } from './repository-scope.service.js';
 import { SpecRepository } from './spec.repository.js';
 
 const ScenarioInput = z.object({
-  scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).default('risky').describe('Fixture scenario identifier.')
+  scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Fixture or registered scenario identifier.')
 });
-
-const WIDGET_EXAMPLE = {
-  id: 'asm_preview',
-  scenarioId: 'risky',
-  analysisStatus: 'COMPLETE',
-  decisionStatus: 'PENDING',
-  baselineSpecHash: 'baseline-preview-hash',
-  candidateSpecHash: 'candidate-preview-hash',
-  repositoryCommits: { 'api-larp-demo/react-consumer': 'a1b2c3d4e5f6' },
-  sourceMode: 'snapshot',
-  classifierMode: 'deterministic-fallback',
-  overallSeverity: 'HIGH',
-  durationMs: 742,
-  createdAt: '2026-07-25T08:30:00.000Z',
-  updatedAt: '2026-07-25T08:30:00.000Z',
-  version: 1,
-  changes: [{
-    id: 'chg_preview', code: 'REQUIRED_PROPERTY_REMOVED', breaking: true,
-    operation: 'GET /api/user', location: 'response', jsonPath: '$response.name',
-    rationale: 'Required property name was removed.', sourcePointers: {}
-  }],
-  evidence: [{
-    id: 'ev_preview', sourceMode: 'snapshot', capturedAt: '2026-07-25T08:30:00.000Z',
-    repository: 'api-larp-demo/react-consumer', branch: 'main', commitSha: 'a1b2c3d4e5f6',
-    searchQuery: 'name', generatedFromChangeIds: ['chg_preview'], filePath: 'src/api/userProfile.ts',
-    lineStart: 12, lineEnd: 13, snippet: 'const displayName = response.name;', contentHash: 'preview',
-    classification: 'CONFIRMED_IMPACT', confidence: 'HIGH', matchedChangeIds: ['chg_preview'],
-    reasoning: 'The production consumer reads the removed response.name field.', migrationActions: []
-  }],
-  limitations: ['Preview data uses a pinned repository snapshot.']
-};
 
 @Injectable({
   deps: [
     ApiGuardConfig,
     SpecRepository,
+    ContractService,
     DiffService,
     EvidenceService,
     RiskService,
@@ -58,6 +29,7 @@ export class ApiGuardTools {
   constructor(
     private readonly config: ApiGuardConfig,
     private readonly specs: SpecRepository,
+    private readonly contractService: ContractService,
     private readonly diffService: DiffService,
     private readonly evidenceService: EvidenceService,
     private readonly riskService: RiskService,
@@ -66,40 +38,101 @@ export class ApiGuardTools {
   ) {}
 
   @Tool({
+    name: 'register_api_contract_pair',
+    description: 'Register a new baseline and candidate OpenAPI 3.0 contract pair dynamically from inline JSON objects/strings or HTTP URLs.',
+    inputSchema: z.object({
+      scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().describe('Custom scenario identifier. Auto-generated if omitted.'),
+      baselineSpec: z.union([z.record(z.unknown()), z.string()]).optional().describe('Inline baseline OpenAPI JSON object or string.'),
+      candidateSpec: z.union([z.record(z.unknown()), z.string()]).optional().describe('Inline candidate OpenAPI JSON object or string.'),
+      baselineUrl: z.string().url().optional().describe('HTTP URL to fetch baseline OpenAPI spec.'),
+      candidateUrl: z.string().url().optional().describe('HTTP URL to fetch candidate OpenAPI spec.')
+    }),
+    invocation: { invoking: 'Registering OpenAPI contract pair…', invoked: 'OpenAPI contract pair registered' },
+    examples: {
+      request: {
+        scenarioId: 'custom_user_v2',
+        baselineSpec: { openapi: '3.0.0', info: { title: 'User API', version: '1.0' }, paths: {} },
+        candidateSpec: { openapi: '3.0.0', info: { title: 'User API', version: '2.0' }, paths: {} }
+      },
+      response: { scenarioId: 'custom_user_v2', sourceType: 'INLINE', operationCountBaseline: 0, operationCountCandidate: 0 }
+    }
+  })
+  async registerContractPair(
+    input: {
+      scenarioId?: string;
+      baselineSpec?: Record<string, unknown> | string;
+      candidateSpec?: Record<string, unknown> | string;
+      baselineUrl?: string;
+      candidateUrl?: string;
+    },
+    ctx: ExecutionContext
+  ) {
+    if ((!input.baselineSpec || !input.candidateSpec) && (!input.baselineUrl || !input.candidateUrl)) {
+      throw new Error('Provide either (baselineSpec and candidateSpec) or (baselineUrl and candidateUrl).');
+    }
+    const result = await this.contractService.register(input);
+    ctx.logger.info('Contract pair registered', { scenarioId: result.scenarioId, sourceType: result.sourceType });
+    return result;
+  }
+
+  @Tool({
     name: 'diff_api_spec',
-    description: 'Deterministically compare baseline and candidate OpenAPI 3.0 JSON specifications and return typed compatibility changes.',
+    description: 'Deterministically compare baseline and candidate OpenAPI 3.0 specifications and return typed compatibility changes and summary statistics.',
     inputSchema: ScenarioInput,
     invocation: { invoking: 'Comparing API contracts…', invoked: 'API contract comparison complete' },
-    examples: { request: { scenarioId: 'risky' }, response: { changes: [{ code: 'PROPERTY_TYPE_CHANGED', breaking: true }] } }
+    examples: { request: { scenarioId: 'risky' }, response: { scenarioId: 'risky', summary: { totalChanges: 4, breakingChanges: 3 } } }
   })
   async diffApiSpec(input: { scenarioId?: string }, ctx: ExecutionContext) {
     const { scenarioId } = ScenarioInput.parse(input ?? {});
     const scenario = await this.specs.getScenario(scenarioId);
     const changes = this.diffService.diff(scenario);
+
+    const baselineHash = sha256(scenario.baseline);
+    const candidateHash = sha256(scenario.candidate);
+    const diffHash = sha256(changes);
+
+    const breakingChanges = changes.filter((c) => c.breaking).length;
+    const nonBreakingChanges = changes.filter((c) => !c.breaking && c.code !== 'UNSUPPORTED_CHANGE').length;
+    const unsupportedChanges = changes.filter((c) => c.code === 'UNSUPPORTED_CHANGE').length;
+
     ctx.logger.info('OpenAPI diff completed', { scenarioId, changeCount: changes.length });
+
     return {
       scenarioId,
-      baselineSpecHash: sha256(scenario.baseline),
-      candidateSpecHash: sha256(scenario.candidate),
-      supportedScope: 'OpenAPI 3.0 JSON with local component references',
+      sourceType: 'FIXTURE',
+      baselineSpecHash: baselineHash,
+      candidateSpecHash: candidateHash,
+      diffHash,
+      validation: {
+        openApiVersion: String(scenario.candidate.openapi ?? '3.0.0'),
+        warnings: unsupportedChanges > 0 ? [`${unsupportedChanges} unsupported OpenAPI change constructs were detected.`] : []
+      },
+      summary: {
+        totalChanges: changes.length,
+        breakingChanges,
+        nonBreakingChanges,
+        unsupportedChanges
+      },
       changes
     };
   }
 
   @Tool({
     name: 'discover_consumer_evidence',
-    description: 'Collect provenance-tagged consumer-code evidence for deterministic contract changes from a snapshot or configured live GitHub scope.',
+    description: '[DEPRECATED] Collect consumer evidence. Prefer using apiguard://evidence-snapshots/{snapshotId} resource instead.',
     inputSchema: ScenarioInput,
-    invocation: { invoking: 'Collecting consumer evidence…', invoked: 'Consumer evidence collected' },
-    examples: { request: { scenarioId: 'risky' }, response: { sourceMode: 'snapshot', evidenceCount: 4 } }
+    invocation: { invoking: 'Collecting consumer evidence (deprecated)…', invoked: 'Consumer evidence collected' },
+    examples: { request: { scenarioId: 'risky' }, response: { deprecated: true, evidenceCount: 4 } }
   })
   async discoverEvidence(input: { scenarioId?: string }, ctx: ExecutionContext) {
     const { scenarioId } = ScenarioInput.parse(input ?? {});
     const scenario = await this.specs.getScenario(scenarioId);
     const changes = this.diffService.diff(scenario);
     const result = await this.evidenceService.discover(scenarioId, changes);
-    ctx.logger.info('Consumer evidence collected', { sourceMode: result.sourceMode, count: result.items.length });
+    ctx.logger.info('Consumer evidence collected (deprecated path)', { count: result.items.length });
     return {
+      deprecated: true,
+      replacementResourceUri: 'apiguard://evidence-snapshots/{snapshotId}',
       scenarioId,
       sourceMode: result.sourceMode,
       evidenceCount: result.items.length,
@@ -109,25 +142,96 @@ export class ApiGuardTools {
   }
 
   @Tool({
+    name: 'refresh_repository_evidence',
+    description: 'Perform an evidence scan across active scope repositories, update commit SHAs, and generate an immutable versioned EvidenceSnapshotV2 package.',
+    inputSchema: z.object({
+      scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Scenario identifier.'),
+      repositories: z.array(z.string()).optional().describe('Optional subset of repositories to refresh.'),
+      forceRefresh: z.boolean().default(false).describe('Clear evidence cache before scanning when true.')
+    }),
+    invocation: { invoking: 'Scanning repositories for consumer evidence…', invoked: 'Evidence snapshot package generated' },
+    examples: {
+      request: { scenarioId: 'risky', forceRefresh: false },
+      response: { snapshotId: 'snap_123', status: 'COMPLETE', evidenceItems: 4 }
+    }
+  })
+  async refreshRepositoryEvidence(
+    input: { scenarioId?: string; repositories?: string[]; forceRefresh?: boolean },
+    ctx: ExecutionContext
+  ) {
+    const scenarioId = input.scenarioId || 'risky';
+    const scenario = await this.specs.getScenario(scenarioId);
+    const changes = this.diffService.diff(scenario);
+
+    const pair = await this.evidenceService.discoverSnapshot(
+      scenarioId,
+      changes,
+      sha256(scenario.baseline),
+      sha256(scenario.candidate),
+      input.forceRefresh
+    );
+
+    const snapshot = pair.snapshot;
+    const status = snapshot.repositoriesFailed.length > 0 ? 'PARTIAL' : 'COMPLETE';
+
+    ctx.logger.info('Evidence snapshot created', { snapshotId: snapshot.snapshotId, items: snapshot.results.length });
+
+    return {
+      scenarioId,
+      snapshotId: snapshot.snapshotId,
+      status,
+      repositoryScopeVersion: snapshot.repositoryScopeVersion,
+      repositoriesExpected: snapshot.repositoriesExpected.map((r) => `${r.owner}/${r.name}`),
+      repositoriesChecked: snapshot.repositoriesChecked,
+      repositoriesFailed: snapshot.repositoriesFailed,
+      evidenceItems: snapshot.results.length,
+      generatedAt: snapshot.generatedAt,
+      baselineSpecHash: snapshot.baselineSpecHash,
+      candidateSpecHash: snapshot.candidateSpecHash,
+      resourceUri: `apiguard://evidence-snapshots/${snapshot.snapshotId}`,
+      nextAction: 'RUN_IMPACT_ASSESSMENT'
+    };
+  }
+
+  @Tool({
     name: 'assess_consumer_risk',
-    description: 'Classify consumer evidence using deterministic filters and one bounded, schema-validated LLM call for ambiguous production code.',
-    inputSchema: ScenarioInput,
+    description: 'Classify consumer evidence using deterministic rules and bounded LLM reasoning against a fixed snapshot or scenario.',
+    inputSchema: z.object({
+      scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Scenario identifier.'),
+      snapshotId: z.string().optional().describe('Optional EvidenceSnapshotV2 ID to assess.')
+    }),
     invocation: { invoking: 'Assessing consumer impact…', invoked: 'Consumer impact assessed' },
     examples: { request: { scenarioId: 'risky' }, response: { overallSeverity: 'HIGH', classifierMode: 'deterministic-fallback' } }
   })
-  async assessRisk(input: { scenarioId?: string }, ctx: ExecutionContext) {
-    const { scenarioId } = ScenarioInput.parse(input ?? {});
+  async assessRisk(input: { scenarioId?: string; snapshotId?: string }, ctx: ExecutionContext) {
+    const scenarioId = input.scenarioId || 'risky';
     const scenario = await this.specs.getScenario(scenarioId);
     const changes = this.diffService.diff(scenario);
-    const evidence = await this.evidenceService.discover(scenarioId, changes);
-    const risk = await this.riskService.assess(changes, evidence.items);
+
+    let snapshot = input.snapshotId ? this.evidenceService.getSnapshot(input.snapshotId) : undefined;
+    if (!snapshot) {
+      const pair = await this.evidenceService.discoverSnapshot(scenarioId, changes);
+      snapshot = pair.snapshot;
+    }
+
+    const items = snapshot.results.map((r) => ({
+      id: r.evidenceId, sourceMode: 'live' as const, capturedAt: snapshot.generatedAt,
+      repository: r.repository, branch: r.branch, commitSha: r.commitSha,
+      searchQuery: '', generatedFromChangeIds: [], filePath: r.filePath,
+      lineStart: r.lineStart, lineEnd: r.lineEnd, snippet: r.snippet,
+      contentHash: r.contentHash, htmlUrl: r.htmlUrl
+    }));
+
+    const risk = await this.riskService.assess(changes, items);
     ctx.logger.info('Consumer risk assessed', { severity: risk.severity, classifierMode: risk.classifierMode });
+
     return {
+      riskRunId: `risk_${sha256(items).slice(0, 10)}`,
       scenarioId,
-      sourceMode: evidence.sourceMode,
+      snapshotId: snapshot.snapshotId,
       classifierMode: risk.classifierMode,
       overallSeverity: risk.severity,
-      limitations: [...evidence.limitations, ...risk.limitations],
+      limitations: risk.limitations,
       evidence: risk.evidence
     };
   }
@@ -135,18 +239,23 @@ export class ApiGuardTools {
   @Tool({
     name: 'run_impact_assessment',
     description: 'Run the complete reliable APIGuard workflow and persist a versioned release-impact assessment.',
-    inputSchema: ScenarioInput,
+    inputSchema: z.object({
+      scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Scenario identifier.'),
+      snapshotId: z.string().optional().describe('Optional EvidenceSnapshotV2 ID to analyze.'),
+      forceRefresh: z.boolean().default(false).describe('Force fresh evidence discovery when true.')
+    }),
     invocation: { invoking: 'Building the API release evidence package…', invoked: 'API release evidence package ready' },
-    examples: { request: { scenarioId: 'risky' }, response: WIDGET_EXAMPLE }
+    examples: { request: { scenarioId: 'risky' }, response: { analysisStatus: 'COMPLETE', overallSeverity: 'HIGH' } }
   })
   @Widget('api-impact-summary')
-  async runImpactAssessment(input: { scenarioId?: string }, ctx: ExecutionContext) {
-    const { scenarioId } = ScenarioInput.parse(input ?? {});
-    const assessment = await this.assessmentService.run(scenarioId);
+  async runImpactAssessment(input: { scenarioId?: string; snapshotId?: string; forceRefresh?: boolean }, ctx: ExecutionContext) {
+    const scenarioId = input.scenarioId || 'risky';
+    const assessment = await this.assessmentService.run({ scenarioId, snapshotId: input.snapshotId, forceRefresh: input.forceRefresh });
     ctx.logger.info('Impact assessment completed', {
       assessmentId: assessment.id,
       durationMs: assessment.durationMs,
-      severity: assessment.overallSeverity
+      severity: assessment.overallSeverity,
+      status: assessment.analysisStatus
     });
     return assessment;
   }
@@ -159,17 +268,12 @@ export class ApiGuardTools {
       expectedVersion: z.number().int().positive(),
       decision: z.enum(['APPROVE', 'BLOCK']),
       reason: z.string().max(500).optional(),
-      idempotencyKey: z.string().min(8).max(160),
-      actorId: z.string().min(1).optional(),
-      actorDisplayName: z.string().min(1).optional()
+      idempotencyKey: z.string().min(8).max(160)
     }),
     invocation: { invoking: 'Recording release decision…', invoked: 'Release decision recorded' },
     examples: {
-      request: {
-        assessmentId: 'asm_preview', expectedVersion: 1, decision: 'BLOCK',
-        reason: 'Consumers still use the old contract.', idempotencyKey: 'asm_preview:block:v1'
-      },
-      response: { ...WIDGET_EXAMPLE, decisionStatus: 'BLOCKED_PENDING_MIGRATION', version: 2 }
+      request: { assessmentId: 'asm_preview', expectedVersion: 1, decision: 'BLOCK', reason: 'Consumers use old contract.', idempotencyKey: 'key_123' },
+      response: { decisionStatus: 'BLOCKED_PENDING_MIGRATION', version: 2 }
     }
   })
   @Widget('api-impact-summary')
@@ -180,23 +284,28 @@ export class ApiGuardTools {
       decision: 'APPROVE' | 'BLOCK';
       reason?: string;
       idempotencyKey: string;
-      actorId?: string;
-      actorDisplayName?: string;
     },
     ctx: ExecutionContext
   ) {
+    // Derive actor from authenticated context, preventing caller impersonation
+    const actorId = (ctx as any).auth?.subject ?? this.config.actorId;
+    const actorDisplayName = (ctx as any).auth?.displayName ?? this.config.actorDisplayName;
+
     const assessment = this.assessmentService.decide({
       ...input,
-      actorId: input.actorId ?? this.config.actorId,
-      actorDisplayName: input.actorDisplayName ?? this.config.actorDisplayName
+      actorId,
+      actorDisplayName
     });
+
     ctx.logger.info('Release decision recorded', {
       assessmentId: assessment.id,
       decisionStatus: assessment.decisionStatus,
-      version: assessment.version
+      version: assessment.version,
+      actorId
     });
     return assessment;
   }
+
   @Tool({
     name: 'manage_repository_scope',
     description: 'Add or deactivate a GitHub repository in the consumer-impact assessment scope. Adding validates the repository against GitHub, resolves the default branch, and pins the latest commit SHA. Removing marks the repository INACTIVE without deleting historical evidence.',
@@ -225,38 +334,11 @@ export class ApiGuardTools {
     },
     ctx: ExecutionContext
   ) {
-    const actorId = this.config.actorId;
+    const actorId = (ctx as any).auth?.subject ?? this.config.actorId;
     const result = input.action === 'ADD'
       ? await this.scopeService.applyAdd({ owner: input.owner, repository: input.repository, branch: input.branch, reason: input.reason, actorId })
       : await this.scopeService.applyRemove({ owner: input.owner, repository: input.repository, reason: input.reason, actorId });
     ctx.logger.info('Repository scope updated', { action: input.action, repo: `${input.owner}/${input.repository}`, changed: result.changed });
     return result;
-  }
-
-  @Tool({
-    name: 'refresh_repository_evidence',
-    description: 'Fetch the latest commit SHA for all active repositories in the assessment scope and invalidate the evidence cache so the next run_impact_assessment uses current code.',
-    inputSchema: z.object({
-      repositories: z.array(z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)).optional().describe('Optional subset of owner/name strings to refresh. Defaults to all active repositories.'),
-      forceRefresh: z.boolean().default(false).describe('When true, clears the evidence cache before re-fetching.')
-    }),
-    invocation: { invoking: 'Refreshing repository commit SHAs…', invoked: 'Repository evidence refreshed' },
-    examples: {
-      request: { forceRefresh: false },
-      response: { refreshed: 1, failed: [], scope: { version: 2 } }
-    }
-  })
-  async refreshRepositoryEvidence(
-    input: { repositories?: string[]; forceRefresh?: boolean },
-    ctx: ExecutionContext
-  ) {
-    const result = await this.scopeService.refreshCommitShas(input.repositories);
-    ctx.logger.info('Repository evidence refreshed', { refreshed: result.refreshed, failed: result.failed.length });
-    return {
-      ...result,
-      nextAction: result.refreshed > 0
-        ? 'Run run_impact_assessment to generate a fresh assessment using the updated commit SHAs.'
-        : 'No repositories were refreshed. Check that there are active repositories in scope.'
-    };
   }
 }

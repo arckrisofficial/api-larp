@@ -90,9 +90,16 @@ export interface Assessment {
   candidateSpecHash: string;
   repositoryCommits: Record<string, string>;
   sourceMode: 'snapshot' | 'live';
-  classifierMode: 'llm' | 'deterministic-fallback';
+  classifierMode: 'llm' | 'deterministic-fallback' | 'hybrid-with-fallback';
   /** Version of the repository scope registry when this assessment was run */
   repositoryScopeVersion: number;
+  /** Linked EvidenceSnapshotV2 ID */
+  evidenceSnapshotId?: string;
+  /** Coverage statistics */
+  repositoriesExpected?: string[];
+  repositoriesChecked?: string[];
+  repositoriesFailed?: string[];
+  coverageRatio?: number;
   changes: ApiChange[];
   evidence: AssessedEvidence[];
   overallSeverity: 'HIGH' | 'MEDIUM' | 'LOW';

@@ -1,5 +1,6 @@
 import { ExecutionContext, Injectable, ResourceDecorator as Resource } from '@nitrostack/core';
 import { AssessmentService } from './assessment.service.js';
+import { EvidenceService } from './evidence.service.js';
 import { RepositoryScopeRepository } from './repository-scope.repository.js';
 import { SpecRepository } from './spec.repository.js';
 
@@ -11,14 +12,16 @@ function jsonResource(uri: string, data: unknown) {
   deps: [
     SpecRepository,
     AssessmentService,
-    RepositoryScopeRepository
+    RepositoryScopeRepository,
+    EvidenceService
   ]
 })
 export class ApiGuardResources {
   constructor(
     private readonly specs: SpecRepository,
     private readonly assessments: AssessmentService,
-    private readonly scopeRepository: RepositoryScopeRepository
+    private readonly scopeRepository: RepositoryScopeRepository,
+    private readonly evidenceService: EvidenceService
   ) {}
 
   @Resource({ uri: 'apiguard://scenarios/{scenarioId}/specs/baseline', name: 'Baseline OpenAPI specification', description: 'The currently released OpenAPI contract.', mimeType: 'application/json' })
@@ -50,5 +53,19 @@ export class ApiGuardResources {
   })
   repositoryScope(uri: string, _ctx: ExecutionContext) {
     return jsonResource(uri, this.scopeRepository.getScope());
+  }
+
+  @Resource({
+    uri: 'apiguard://evidence-snapshots/{snapshotId}',
+    name: 'Evidence Snapshot V2',
+    description: 'Read an immutable, provenance-tagged consumer code evidence snapshot.',
+    mimeType: 'application/json'
+  })
+  evidenceSnapshot(uri: string, _ctx: ExecutionContext) {
+    const match = /^apiguard:\/\/evidence-snapshots\/(.+)$/.exec(uri);
+    if (!match?.[1]) throw new Error('Invalid snapshot resource URI.');
+    const snapshot = this.evidenceService.getSnapshot(match[1]);
+    if (!snapshot) throw new Error(`Evidence snapshot ${match[1]} was not found.`);
+    return jsonResource(uri, snapshot);
   }
 }
