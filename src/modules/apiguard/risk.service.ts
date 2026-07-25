@@ -45,9 +45,10 @@ export class RiskService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.llmTimeoutMs);
     try {
-      const raw = this.config.llmProvider === 'anthropic'
-        ? await this.callAnthropic(changes, evidence, controller.signal)
-        : await this.callOpenAi(changes, evidence, controller.signal);
+      const raw =
+        this.config.llmProvider === 'anthropic' ? await this.callAnthropic(changes, evidence, controller.signal) :
+        this.config.llmProvider === 'gemini'    ? await this.callGemini(changes, evidence, controller.signal) :
+                                                  await this.callOpenAi(changes, evidence, controller.signal);
       const parsed = JSON.parse(raw) as unknown;
       return AssessRiskOutputSchema.parse(parsed);
     } finally {
@@ -82,6 +83,29 @@ export class RiskService {
     const payload = await response.json() as any;
     const content = payload.content?.find((item: any) => item.type === 'text')?.text;
     if (typeof content !== 'string') throw new Error('Anthropic response contained no JSON text.');
+    return content;
+  }
+
+  private async callGemini(changes: ApiChange[], evidence: EvidenceItem[], signal: AbortSignal): Promise<string> {
+    if (!this.config.geminiKey) throw new Error('GEMINI_API_KEY is missing.');
+    const url = `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`;
+    const response = await fetch(url, {
+      method: 'POST', signal,
+      headers: { Authorization: `Bearer ${this.config.geminiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.config.geminiModel,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: RISK_SYSTEM_PROMPT },
+          { role: 'user', content: riskUserPrompt(changes, evidence) }
+        ]
+      })
+    });
+    if (!response.ok) throw new Error(`Gemini ${response.status}: ${await response.text()}`);
+    const payload = await response.json() as any;
+    const content = payload.choices?.[0]?.message?.content;
+    if (typeof content !== 'string') throw new Error('Gemini response contained no JSON text.');
     return content;
   }
 }
