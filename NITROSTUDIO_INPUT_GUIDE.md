@@ -1,182 +1,195 @@
-# NitroStack Studio Testing Guide for APIGuard Tools
+# NitroStudio input guide
 
-This guide provides step-by-step instructions on **what exact inputs to enter** into each field in **NitroStack Studio** UI for all 13 APIGuard tools, including the recommended sequence to test the entire release governance pipeline.
+This is the manual counterpart to the natural-language demo. Replace example IDs with values returned by your own run.
 
----
+## Read-only assessment path
 
-## Recommended Testing Sequence (End-to-End Walkthrough)
+### 1. `diff_api_spec`
 
-To test the complete APIGuard workflow step-by-step in NitroStack Studio, follow this exact sequence:
-
-```mermaid
-graph TD
-  Step1[1. diff_api_spec] --> Step2[2. run_impact_assessment]
-  Step2 --> Step3[3. resolve_consumer_owners]
-  Step3 --> Step4[4. evaluate_release_policy]
-  Step4 --> Step5[5. export_release_evidence_package]
-  Step5 --> Step6[6. verify_migration_readiness]
-  Step6 --> Step7[7. record_release_decision]
-  Step7 --> Step8[8. publish_assessment_to_pr]
+```json
+{ "scenarioId": "risky" }
 ```
 
----
+Expected: four semantic changes, including breaking type/removal changes and one compatible optional addition.
 
-## 1. `diff_api_spec`
-**Purpose**: Compare baseline and candidate OpenAPI specifications to detect breaking API changes.
+### 2. `refresh_repository_evidence`
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `scenarioId` | `risky` | Selects the pre-configured risky API change scenario. |
+```json
+{ "scenarioId": "risky", "forceRefresh": true }
+```
 
-*Click **Run*** -> **Expected Result**: Output JSON showing 4 total changes (3 breaking: `id`, `name`, `email` removed from `/api/user`).
+Expected: `snapshotId`, coverage counts, spec hashes, and `apiguard://evidence-snapshots/{snapshotId}`.
 
----
+In snapshot mode, this loads the committed pinned fixture. In live mode, it scans the configured active scope. Always inspect `status` and repository failure counts.
 
-## 2. `run_impact_assessment`
-**Purpose**: Run the full impact assessment workflow and generate a persisted `assessmentId`.
+### 3. `assess_consumer_risk`
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `scenarioId` | `risky` | Scenario identifier. |
-| `snapshotId` | *(Leave empty)* | Auto-discovers latest evidence snapshot. |
-| `forceRefresh` | `false` | Use cached/latest snapshot. |
+```json
+{ "scenarioId": "risky", "snapshotId": "<snapshotId>" }
+```
 
-*Click **Run*** -> **Expected Result**: An assessment object with a generated `id` (e.g. `asm_31bb9d91-d043-4fe7-8911-c459b6afe9d6`).  
-👉 **IMPORTANT**: Copy the returned `id` value! You will use it as `assessmentId` in the next tools.
+Expected: severity, classifier mode, evidence classifications, and limitations.
 
----
+### 4. `run_impact_assessment`
 
-## 3. `resolve_consumer_owners`
-**Purpose**: Match impacted file paths against repository `CODEOWNERS` rules.
+```json
+{ "scenarioId": "risky", "snapshotId": "<snapshotId>", "forceRefresh": false }
+```
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `assessmentId` * | `asm_31bb9d91-d043-4fe7-8911-c459b6afe9d6` *(Paste your assessmentId from Step 2)* | Target Assessment ID. |
+Copy the returned `id` and `version`. The assessment ID contains UUID hyphens.
 
-*Click **Run*** -> **Expected Result**: Ownership resolution with assigned/unresolved file counts and CODEOWNERS matches.
+### 5. `resolve_consumer_owners`
 
----
+```json
+{ "assessmentId": "<assessmentId>" }
+```
 
-## 4. `evaluate_release_policy`
-**Purpose**: Evaluate the release against 6 deterministic policy rules (POL-001 through POL-007).
+Expected: assignment count, unresolved count, and warnings.
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `assessmentId` * | `asm_31bb9d91-d043-4fe7-8911-c459b6afe9d6` *(Paste your assessmentId)* | Target Assessment ID. |
-| `profile` | `STRICT` | Select `STRICT` profile to enforce blocking rules. |
+### 6. `evaluate_release_policy`
 
-*Click **Run*** -> **Expected Result**: Verdict `BLOCK` due to POL-004 (breaking changes without major SemVer bump) and POL-007 (unowned code).
+```json
+{ "assessmentId": "<assessmentId>", "profile": "STRICT" }
+```
 
----
+Expected: deterministic policy rules and a `BLOCK`, `WARN`, or `PASS` verdict derived from the assessment.
 
-## 5. `export_release_evidence_package`
-**Purpose**: Export an immutable, standalone JSON evidence bundle stored in `LocalArtifactStore`.
+### 7. `export_release_evidence_package`
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `assessmentId` * | `asm_31bb9d91-d043-4fe7-8911-c459b6afe9d6` *(Paste your assessmentId)* | Target Assessment ID. |
+```json
+{ "assessmentId": "<assessmentId>" }
+```
 
-*Click **Run*** -> **Expected Result**: Output JSON containing `bundleId` (e.g. `pkg_2b11ee5553f5d089`) and `artifactUri`.  
-👉 **IMPORTANT**: Copy the returned `bundleId` value!
+Copy the returned `bundleId`. Read the bundle at `apiguard://evidence-packages/{bundleId}`.
 
----
+### 8. `verify_migration_readiness`
 
-## 6. `verify_migration_readiness`
-**Purpose**: Verify if the evidence package is cleared for automated code migration tooling.
+```json
+{ "bundleId": "<bundleId>" }
+```
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `bundleId` * | `pkg_2b11ee5553f5d089` *(Paste your bundleId from Step 5)* | Evidence package bundle ID. |
+A `false` result is expected before the human block decision is recorded. This means remediation prerequisites are not complete; it does not mean the release is safe.
 
-*Click **Run*** -> **Expected Result**: `readyForMigration: false` with explanation (`"Policy blocks or missing owners"`).
+## Human decision
 
----
+### 9. `record_release_decision`
 
-## 7. `record_release_decision`
-**Purpose**: Record a formal human operator release approval or block decision.
+```json
+{
+  "assessmentId": "<assessmentId>",
+  "expectedVersion": 1,
+  "decision": "BLOCK",
+  "reason": "Confirmed downstream consumers must be migrated before this API release.",
+  "idempotencyKey": "judge-demo-block-001"
+}
+```
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `assessmentId` * | `asm_31bb9d91-d043-4fe7-8911-c459b6afe9d6` *(Paste your assessmentId)* | Target Assessment ID. |
-| `expectedVersion` * | `1` | Must match current assessment version. |
-| `decision` * | `BLOCK` | Select `BLOCK` (or `APPROVE`). |
-| `reason` | `Blocking release due to unowned code and failing SemVer rules.` | Required human rationale. |
-| `idempotencyKey` * | `op-decision-key-101` | Idempotency key preventing duplicate decisions. |
+Use the actual current version. Expected state: `BLOCKED_PENDING_MIGRATION`, version incremented. Read `apiguard://assessments/{assessmentId}` to prove server-side state changed.
 
-*Click **Run*** -> **Expected Result**: Decision recorded with state `BLOCKED_PENDING_MIGRATION`.
+Re-run `export_release_evidence_package` after the decision and verify the new bundle. With complete repository coverage, confirmed/likely impacts, and resolved owners, `readyForMigration` should now be `true`. This means remediation may begin while the release remains blocked.
 
----
+## Guarded GitHub write path
 
-## 8. `publish_assessment_to_pr`
-**Purpose**: Generate a formatted PR release-impact comment summary.
+Writes require server environment configuration in addition to tool input:
 
-| Field Name | Value to Enter | Description |
-| :--- | :--- | :--- |
-| `assessmentId` * | `asm_31bb9d91-d043-4fe7-8911-c459b6afe9d6` *(Paste your assessmentId)* | Target Assessment ID. |
-| `prUrl` * | `https://github.com/arckrisofficial/api-larp/pull/42` | Target Pull Request URL. |
-| `idempotencyKey` * | `pr42_comment_key_1` | Idempotency key preventing duplicate comments. |
+```dotenv
+APIGUARD_GITHUB_WRITE_ENABLED=true
+APIGUARD_WRITABLE_REPOSITORIES=owner/disposable-repository
+GITHUB_TOKEN=<secret>
+```
 
-*Click **Run*** -> **Expected Result**: `publishedId` (e.g. `pub_1ab29887`) with markdown summary preview.
+### 10. `get_pinned_migration_sources`
 
----
+```json
+{
+  "assessmentId": "<blockedAssessmentId>",
+  "repository": "owner/disposable-repository",
+  "paths": ["src/consumer.go"]
+}
+```
 
-## Individual Utility Tools Reference
+This read-only tool returns complete file content and its exact SHA-256 hash from the assessment-pinned GitHub commit. Use those returned values to prepare the next call; do not calculate against a moving default branch.
+
+### 11. `create_migration_pull_requests`
+
+```json
+{
+  "assessmentId": "<blockedAssessmentId>",
+  "repository": "owner/disposable-repository",
+  "files": [
+    {
+      "path": "src/consumer.go",
+      "proposedContent": "<complete replacement file>",
+      "expectedSourceHash": "<64-character SHA-256 of pinned source>"
+    }
+  ],
+  "title": "fix: migrate consumer for candidate API contract",
+  "idempotencyKey": "judge-demo-migration-001",
+  "confirmed": true
+}
+```
+
+Expected: real GitHub URL, draft `true`, merged `false`, branch, head SHA, base branch, pinned commit, and replay status.
+
+### 12. `publish_assessment_to_pr`
+
+```json
+{
+  "assessmentId": "<assessmentId>",
+  "prUrl": "https://github.com/owner/repository/pull/1",
+  "idempotencyKey": "judge-demo-comment-001",
+  "confirmed": true
+}
+```
+
+Expected: real PR and comment URLs. Repeat with the same key to verify idempotency.
+
+## Contract and scope utilities
 
 ### `register_api_contract_pair`
-Registers a custom OpenAPI baseline and candidate pair dynamically.
-* `scenarioId`: `custom-test`
-* `baselineSpec`:
+
 ```json
 {
-  "openapi": "3.0.3",
-  "info": { "title": "Test API", "version": "1.0.0" },
-  "paths": { "/status": { "get": { "responses": { "200": { "description": "OK" } } } } }
-}
-```
-* `candidateSpec`:
-```json
-{
-  "openapi": "3.0.3",
-  "info": { "title": "Test API", "version": "2.0.0" },
-  "paths": { "/v2/status": { "get": { "responses": { "200": { "description": "OK" } } } } }
+  "scenarioId": "custom_status_v2",
+  "baselineSpec": {
+    "openapi": "3.0.3",
+    "info": { "title": "Status API", "version": "1.0.0" },
+    "paths": { "/status": { "get": { "responses": { "200": { "description": "OK" } } } } }
+  },
+  "candidateSpec": {
+    "openapi": "3.0.3",
+    "info": { "title": "Status API", "version": "2.0.0" },
+    "paths": {}
+  }
 }
 ```
 
-### `refresh_repository_evidence`
-Triggers a fresh GitHub code scan for a scenario.
-* `scenarioId`: `risky`
-* `repositories`: *(Leave empty or `["arckrisofficial/api-larp"]`)*
-
-### `assess_consumer_risk`
-Performs risk classification on evidence.
-* `scenarioId`: `risky`
+Then call `diff_api_spec` with `custom_status_v2` to prove the diff derives from registered input.
 
 ### `manage_repository_scope`
-Adds or removes a GitHub repository from the scope.
-* `action`: `ADD`
-* `owner`: `arckrisofficial`
-* `repository`: `api-larp`
-* `reason`: `Adding primary backend service repository to scope.`
 
----
+Add:
 
-## Prompt Guide: `review_api_release`
+```json
+{
+  "action": "ADD",
+  "owner": "arckrisofficial",
+  "repository": "apiguard-go-consumer",
+  "branch": "main",
+  "reason": "This repository consumes the User API.",
+  "confirmed": true
+}
+```
 
-### Is there anything to do in Prompts?
-Yes! Prompts in NitroStack Studio allow LLMs / MCP clients to automate the entire APIGuard workflow in a single conversation.
+Remove uses the same owner/repository with `action: REMOVE`, a reason, and `confirmed: true`. Removal deactivates the entry; it does not erase historical evidence.
 
-We have updated the prompt **`review_api_release`** in `apiguard.prompts.ts`.
+## Prompt
 
-#### How to test `review_api_release` in NitroStack Studio:
-1. Open the **Prompts** tab in NitroStack Studio.
-2. Select **`review_api_release`**.
-3. Fill in arguments:
-   - `scenario_id`: `risky`
-   - `release_context`: `PR #42 proposes removing user id, name, and email fields.`
-4. Click **Run / Submit to Chat**.
-5. The LLM will automatically execute all 5 core APIGuard tools in sequence:
-   - `run_impact_assessment`
-   - `resolve_consumer_owners`
-   - `evaluate_release_policy`
-   - `export_release_evidence_package`
-   - `verify_migration_readiness`
+Run `review_api_release` with:
+
+| Argument | Value |
+|---|---|
+| `scenario_id` | `risky` |
+| `release_context` | `I am about to push the candidate API contract. Check downstream safety before release.` |
+
+The prompt directs the client through assessment, owners, policy, evidence export, and readiness, then asks for a human decision after presenting the evidence.

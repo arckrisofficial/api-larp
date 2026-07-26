@@ -1,5 +1,7 @@
 # APIGuard Implementation Plan
 
+> Historical planning record. Tool names and scope in this file may predate the current implementation; use the root README and `docs/README.md` for the authoritative runtime documentation.
+
 ## Step-by-step execution plan for a four-member team
 
 > **Objective:** Build, test, deploy and demonstrate a real NitroStack MCP server that assesses the consumer impact of a proposed OpenAPI contract change and records a human release decision.
@@ -491,7 +493,7 @@ Hours 0-4
 
 1. Register placeholder tools:
    - `diff_api_spec`
-   - `discover_consumer_evidence`
+   - `refresh_repository_evidence` (current implementation name)
    - `assess_consumer_risk`
    - `run_impact_assessment`
    - `record_release_decision`

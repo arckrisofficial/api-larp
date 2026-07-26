@@ -30,11 +30,11 @@ This file maps the implementation to the supplied participant documents and the 
 
 ## MCP surface
 
-- 5 tools
-- 3 resources
+- 14 tools
+- 6 resources
 - 1 prompt
-- 1 widget
-- 1 health check
+- 6 widget applications
+- 2 health checks
 
 The full assessment is exposed through one reliable orchestrator tool while the smaller capabilities remain independently inspectable in NitroStudio.
 
@@ -43,10 +43,10 @@ The full assessment is exposed through one reliable orchestrator tool while the 
 The project is intended to be tested in Studio through:
 
 1. Tools page: execute every tool and inspect generated input forms and JSON output.
-2. Resources page: fetch baseline, candidate and assessment state.
+2. Resources page: fetch contracts, repository scope, snapshots, assessments and evidence packages.
 3. Prompts page: run `review_api_release`.
 4. AI Chat: invoke `run_impact_assessment` naturally.
-5. Widget preview: verify `api-impact-summary` and follow-up decision calls.
+5. Widget preview: verify all six result widgets and follow-up decision calls.
 6. Logs: inspect one correlated end-to-end assessment.
 7. Health: verify the configured evidence and classifier modes.
 

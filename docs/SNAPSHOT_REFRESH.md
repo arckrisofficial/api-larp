@@ -41,4 +41,4 @@ The command:
 USE_LIVE_GITHUB=false USE_LLM=false npm run dev
 ```
 
-Run `discover_consumer_evidence` and `run_impact_assessment` in NitroStudio. Confirm that the source mode is `snapshot`, hashes validate, and repository commit SHAs are visible.
+Run `refresh_repository_evidence` and `run_impact_assessment` in NitroStudio. Confirm that the source mode is `snapshot`, hashes validate, and repository commit SHAs are visible.

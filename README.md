@@ -1,173 +1,281 @@
-# API-LARP / APIGuard
+# APIGuard
 
-**APIGuard connects provider-side OpenAPI changes to scoped consumer-code evidence and records a versioned human release decision through a real NitroStack MCP server.**
+> Stop breaking API releases before downstream consumers discover them in production.
 
-## Status
+[![CI](https://github.com/arckrisofficial/api-larp/actions/workflows/ci.yml/badge.svg)](https://github.com/arckrisofficial/api-larp/actions/workflows/ci.yml)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](package.json)
+[![NitroStack MCP](https://img.shields.io/badge/MCP-NitroStack-6C5CE7)](https://docs.nitrostack.ai)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-This repository contains the MCP server implementation, fixtures, widget, tests, Docker configuration and NitroCloud-ready project structure. The project was scaffolded manually to the current official NitroStack CLI layout after the execution VM could not reach `registry.npmjs.org`; on a normal machine, run the official CLI command shown below before comparing or replacing the scaffold.
+APIGuard is a NitroStack-powered MCP server that turns an OpenAPI contract change into a governed release decision. It computes a semantic diff, locates consumer-code evidence at pinned Git commits, classifies real impact, resolves owners, applies release policy, records a human decision, and can open a guarded **draft** migration pull request.
 
-```bash
-npx @nitrostack/cli@latest init api-larp
+The central question is not merely “is this API change breaking?” It is:
+
+> **Which consumers will break, where is the evidence, who owns the fix, and is the release safe to continue?**
+
+## Why it matters
+
+Provider tests can pass while downstream applications fail after deployment. A removed response field, changed identifier type, or widened enum may be valid inside the provider repository but incompatible with code maintained elsewhere. APIGuard closes that visibility gap before release.
+
+| Without APIGuard | With APIGuard |
+|---|---|
+| A schema diff reports abstract changes | Every change is linked to consumer evidence |
+| Teams search repositories manually | Evidence is scoped, provenance-tagged, and commit-pinned |
+| AI output is difficult to trust | Deterministic rules handle mechanical cases; the LLM sees only ambiguous snippets |
+| Approval lives in chat or memory | Decisions are versioned, idempotent, and readable through MCP resources |
+| Migration is a follow-up task | A guarded draft PR can be created from verified source hashes |
+
+## The verified workflow
+
+```mermaid
+flowchart LR
+    A["Proposed OpenAPI change"] --> B["Semantic diff"]
+    B --> C["Pinned consumer evidence"]
+    C --> D["Deterministic + bounded LLM assessment"]
+    D --> E["Owner and policy resolution"]
+    E --> F{"Human decision"}
+    F -->|Approve| G["Release may continue"]
+    F -->|Block| H["Guarded draft migration PR"]
+    H --> I["Human review and repository CI"]
 ```
 
-## Why this is a real MCP server
+The bundled `risky` scenario changes the User API by converting `id` from integer to string, removing required `name` in favor of optional `fullName`, and adding `suspended` to the response status enum. The pinned React, Python, and Go consumers contain code that relies on the old contract.
 
-- MCP client: NitroStudio AI Chat, Tools/Resources pages, ChatGPT or another compatible host.
-- MCP server: this TypeScript application using `@nitrostack/core` decorators and DI.
-- Registered surface: 5 tools, 3 resources, 1 prompt and 1 widget.
-- External dependencies: GitHub and the LLM provider are internal server adapters, not MCP servers.
+### Live proof
+
+The complete guarded write path has been exercised against a disposable public consumer repository:
+
+- Assessment severity: `HIGH`
+- Model path: Gemini, structured output accepted
+- Policy verdict: `BLOCK`
+- Human decision: `BLOCKED_PENDING_MIGRATION`
+- Result: [draft Go migration PR #1](https://github.com/arckrisofficial/apiguard-go-consumer/pull/1)
+- Evidence publication: [APIGuard assessment comment](https://github.com/arckrisofficial/apiguard-go-consumer/pull/1#issuecomment-5082574255)
+
+The pull request is draft, remains unmerged, targets an allow-listed repository, and was created from the assessment-pinned source commit.
+
+### Project links
+
+- Hosted MCP endpoint: `https://apilarp-6a6591d4-ballers-amrita-university-coimbatore.app.nitrocloud.ai/mcp`
+- Demo consumers: [React](https://github.com/arckrisofficial/apiguard-react-consumer), [Python](https://github.com/arckrisofficial/apiguard-python-consumer), and [Go](https://github.com/arckrisofficial/apiguard-go-consumer)
+- Deployment health: verify the hosted tool list and a `risky` assessment before judging; a successful GitHub container build does not prove NitroCloud has rolled out the same revision.
+
+## Natural-language demo
+
+Connect the MCP server to an MCP-compatible client and ask:
+
+> I’ve updated the API contract in the `risky` scenario and I’m about to push it. Before I do, check whether this change could break any downstream consumers. If it is unsafe, stop the release, identify the affected repositories and owners, and explain the evidence. Then prepare the required consumer migration and open a draft pull request with the assessment attached. Do not merge anything.
+
+This intentionally describes the engineering goal rather than naming tools. The client can select the APIGuard workflow through the registered MCP descriptions and the `review_api_release` prompt.
+
+See [the demo guide](docs/DEMO_GUIDE.md) for the narrated five-minute flow, prerequisites, expected outputs, and fallback plan.
+
+## Quick start
+
+Requirements:
+
+- Node.js 20.18 or newer within the Node 20 line
+- npm 9+
+- NitroStudio or another MCP client
+
+```bash
+git clone https://github.com/arckrisofficial/api-larp.git
+cd api-larp
+cp .env.example .env
+npm ci
+npm run check
+npm run dev
+```
+
+Windows PowerShell equivalent:
+
+```powershell
+Copy-Item .env.example .env
+npm ci
+npm run check
+npm run dev
+```
+
+The safest zero-credential demonstration uses the committed evidence snapshot:
+
+```bash
+npm run demo
+```
+
+To use the bounded model classifier with snapshot evidence, set one provider key and run:
+
+```bash
+npm run demo:llm
+```
+
+## Operating modes
+
+| Evidence | Classifier | Configuration | Best use |
+|---|---|---|---|
+| Pinned snapshot | Deterministic fallback | `USE_LIVE_GITHUB=false`, `USE_LLM=false` | Fully reproducible offline demo |
+| Pinned snapshot | Gemini/OpenAI/Anthropic | `USE_LIVE_GITHUB=false`, `USE_LLM=true` | Recommended judged demo |
+| Live GitHub | Selected model | `USE_LIVE_GITHUB=true`, `USE_LLM=true` | Fresh repository discovery |
+
+Snapshot mode is not presented as live discovery. Every assessment records `sourceMode`, snapshot provenance, commit SHAs, hashes, classifier mode, model metadata, coverage, and limitations.
 
 ## MCP surface
 
 ### Tools
 
-- `diff_api_spec`
-- `discover_consumer_evidence`
-- `assess_consumer_risk`
-- `run_impact_assessment`
-- `record_release_decision`
+| Tool | Responsibility |
+|---|---|
+| `register_api_contract_pair` | Store a baseline/candidate OpenAPI 3.0 pair from inline JSON or URLs |
+| `diff_api_spec` | Produce a deterministic, typed compatibility diff |
+| `refresh_repository_evidence` | Scan active repositories or load fixture evidence into an immutable snapshot |
+| `assess_consumer_risk` | Classify evidence using deterministic rules plus an optional bounded model call |
+| `resolve_consumer_owners` | Resolve evidence paths through pinned `CODEOWNERS` data |
+| `evaluate_release_policy` | Apply the `STRICT` or `BALANCED` deterministic policy profile |
+| `run_impact_assessment` | Orchestrate diff, evidence, classification, severity, and persistence |
+| `record_release_decision` | Record an optimistic, idempotent human approve/block decision |
+| `manage_repository_scope` | Add or deactivate repositories with explicit confirmation |
+| `export_release_evidence_package` | Export an immutable JSON assessment and snapshot bundle |
+| `verify_migration_readiness` | Check policy and ownership prerequisites |
+| `publish_assessment_to_pr` | Publish a real idempotent assessment comment to an allow-listed PR |
+| `get_pinned_migration_sources` | Read complete impacted files and hashes from the assessment-pinned commit |
+| `create_migration_pull_requests` | Create one guarded draft PR from complete-file changes and verified source hashes |
 
 ### Resources
 
 - `apiguard://scenarios/{scenarioId}/specs/baseline`
 - `apiguard://scenarios/{scenarioId}/specs/candidate`
 - `apiguard://assessments/{assessmentId}`
+- `apiguard://repository-scope`
+- `apiguard://evidence-snapshots/{snapshotId}`
+- `apiguard://evidence-packages/{bundleId}`
 
-### Prompt and widget
+### Prompt, widgets, and health
 
 - Prompt: `review_api_release`
-- Widget: `api-impact-summary`
-
-## Quick start
-
-Requirements: Node.js 20.18+, npm 9+ and NitroStudio.
-
-```bash
-cp .env.example .env
-npm run install:all
-npm run dev
-```
-
-Open this folder in NitroStudio using **Add MCP Server → Nitro Project → Studio App Canvas**.
-
-### Guaranteed snapshot demo
-
-```bash
-npm run demo
-```
-
-This uses committed evidence and deterministic fallback classification. It needs no GitHub or LLM credentials.
-
-### Snapshot evidence with the real bounded LLM classifier
-
-```bash
-# Set one provider key and USE_LLM=true in .env
-npm run demo:llm
-```
-
-### Live GitHub mode
-
-```bash
-# Requires a read-only GitHub token and configured public repository allow-list.
-npm run demo:live
-```
-
-Live mode is not the critical judging path because it can be affected by rate limits and network latency.
+- Widgets: contract diff, consumer risk, impact summary, ownership, policy, and migration readiness
+- Health checks: `apiguard-liveness` and `apiguard-readiness`
 
 ## Architecture
 
+APIGuard keeps MCP transport concerns thin and places business behavior in injectable services.
+
 ```mermaid
-flowchart LR
-  Client[NitroStudio / ChatGPT MCP Client] -->|MCP| Server[API-LARP NitroStack MCP Server]
-  Server --> Diff[Deterministic OpenAPI Diff]
-  Server --> Evidence[Snapshot or GitHub Evidence Adapter]
-  Server --> Risk[Bounded LLM Classifier]
-  Server --> State[Assessment State Machine]
-  Server --> Widget[API Impact Summary Widget]
-  Evidence --> GitHub[GitHub API]
-  Risk --> Model[OpenAI or Anthropic]
+flowchart TB
+    Client["NitroStudio / ChatGPT / MCP client"] -->|"Streamable HTTP or stdio"| MCP["NitroStack MCP application"]
+    MCP --> Controllers["Tools · Resources · Prompt · Widgets"]
+    Controllers --> Diff["Deterministic OpenAPI diff"]
+    Controllers --> Evidence["Snapshot / GitHub evidence service"]
+    Controllers --> Risk["Risk service"]
+    Controllers --> Governance["Ownership · Policy · Decision state"]
+    Controllers --> GitHubWrite["Guarded GitHub publisher"]
+    Evidence --> GitHubRead["GitHub API"]
+    Risk --> Model["Gemini / OpenAI / Anthropic"]
+    Diff --> Files["File-backed contracts"]
+    Evidence --> Files
+    Governance --> Files
 ```
 
-Business logic lives in injectable services. MCP controllers are thin decorator-based wrappers. All ESM imports use `.js` extensions.
+Read [Architecture](docs/ARCHITECTURE.md) for component boundaries, state transitions, data provenance, and persistence details.
 
-## Deterministic versus LLM responsibilities
+## Safety invariants
 
-Deterministic code parses OpenAPI, resolves local references, detects structural changes, filters test/docs/generated files, validates model output, computes severity and applies release-decision transitions. The LLM only classifies ambiguous executable snippets and proposes scoped migration guidance.
+GitHub writes are deliberately harder than reads:
 
-## Supported diff subset
+1. Writes are disabled unless `APIGUARD_GITHUB_WRITE_ENABLED=true`.
+2. The target must exactly match `APIGUARD_WRITABLE_REPOSITORIES`.
+3. Migration PRs require a `BLOCKED_PENDING_MIGRATION` assessment.
+4. Only confirmed or likely impacted paths are accepted.
+5. The source is fetched from the assessment-pinned commit and its SHA-256 hash is revalidated.
+6. A namespaced branch is created; the default branch is never directly modified.
+7. GitHub must confirm the PR is a draft.
+8. Idempotency keys prevent duplicate comments and migration PRs.
+9. APIGuard never merges a pull request.
+
+The LLM has no tools and cannot write to GitHub. Model output is JSON-parsed, Zod-validated, reconciled against known evidence/change IDs, and safely downgraded when unavailable or invalid.
+
+Read [Security model](docs/SECURITY.md) for the threat model and deployment caveats.
+
+## Configuration
+
+Copy `.env.example`; never commit `.env`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `USE_LIVE_GITHUB` | `false` | Select live GitHub evidence instead of the pinned fixture |
+| `GITHUB_TOKEN` | empty | GitHub read/write credential; scope it minimally |
+| `DEMO_GITHUB_OWNER` | empty | Bootstrap owner for consumer scope |
+| `DEMO_GITHUB_REPOSITORIES` | empty | Comma-separated consumer repositories |
+| `USE_LLM` | `false` | Enable bounded classification for ambiguous evidence |
+| `LLM_PROVIDER` | `openai` | `gemini`, `openai`, or `anthropic` |
+| `LLM_TIMEOUT_MS` | `30000` | Model request timeout |
+| `APIGUARD_GITHUB_WRITE_ENABLED` | `false` | Master switch for GitHub mutations |
+| `APIGUARD_WRITABLE_REPOSITORIES` | empty | Exact comma-separated `owner/repository` allow-list |
+| `ALLOWED_GITHUB_OWNERS` | empty | Owners permitted by repository-scope mutation |
+
+Provider-specific model and key variables are documented in [.env.example](.env.example). NitroCloud configuration is covered in [Deployment](docs/NITROCLOUD_DEPLOYMENT.md).
+
+## Verification
+
+```bash
+npm run typecheck
+npm test
+npm run widget:typecheck
+npm run build
+```
+
+The offline suite currently contains 17 tests covering contract registration/diff behavior, prompt-injection resistance, deterministic filtering, targeted snapshot refresh, migration readiness, decision idempotency, repository-scope behavior, pinned source retrieval, GitHub publication safety, draft PR creation, stale-state verification, and PR replay semantics.
+
+CI performs a clean `npm ci`, type-check, test, and production build on Node 20. The deploy workflow repeats the quality gate before publishing the container image to GitHub Container Registry.
+
+See [Verification](VERIFICATION.md) for executed results and the boundary between verified behavior and remaining limitations.
+
+## Supported compatibility subset
 
 - OpenAPI 3.0 JSON
 - Local `#/components/...` references
-- Removed operation or parameter
-- Parameter becoming required
-- Required property removal
-- Optional property becoming required
-- Property type change
-- Enum narrowing
-- Optional property addition
+- Removed operations and parameters
+- Parameters becoming required
+- Required response-property removal
+- Optional properties becoming required
+- Property type changes
+- Direction-aware enum compatibility
+- Optional property additions
 
-Not supported: YAML, OpenAPI 3.1, remote references and complete polymorphic-schema compatibility.
+Unsupported or ambiguous constructs are reported rather than silently treated as safe. YAML, OpenAPI 3.1, remote references, and complete polymorphic compatibility are outside the current scope.
 
-## Tests
+## Honest limitations
 
-```bash
-npm test
+- GitHub code search is scoped evidence collection, not complete dependency discovery.
+- File-backed persistence is appropriate for the demo and a single writable instance, not a multi-replica production control plane.
+- APIGuard records a release decision; it is not itself a GitHub required check or branch-protection rule.
+- Generated migration content still requires human review and repository CI.
+- URL-based contract registration should be restricted or disabled in an untrusted public deployment.
+- The public demo uses no MCP authentication unless the deployment is configured behind an authenticated gateway.
+- A client request before `git push` is advisory unless integrated into a pre-push hook or CI workflow.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Project explanation](docs/PROJECT_EXPLANATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Demo guide](docs/DEMO_GUIDE.md)
+- [Security model](docs/SECURITY.md)
+- [NitroCloud deployment](docs/NITROCLOUD_DEPLOYMENT.md)
+- [NitroStudio inputs](NITROSTUDIO_INPUT_GUIDE.md)
+- [Snapshot refresh](docs/SNAPSHOT_REFRESH.md)
+- [Verification report](VERIFICATION.md)
+
+## Repository map
+
+```text
+src/domain/                     deterministic compatibility and decision logic
+src/modules/apiguard/           MCP controllers, services, adapters, and stores
+src/widgets/                    six NitroStack result widgets
+fixtures/scenarios/risky/       reproducible contract and evidence scenario
+tests/offline/                  credential-free test suite
+scripts/                        snapshot, smoke, and live-write verification
+docs/                           architecture, demo, security, and operations guides
 ```
 
-The offline VM-verifiable pure-domain tests can be run with:
+## License
 
-```bash
-npm run test:offline
-```
-
-## Build and production
-
-```bash
-npm run build
-npm run start:prod
-```
-
-The build copies fixtures to `dist/fixtures`. Production automatically defaults to `dist/fixtures`; `APIGUARD_FIXTURES_DIR` is available only as an override.
-
-## NitroStack alignment
-
-See [`docs/NITROSTACK_ALIGNMENT.md`](docs/NITROSTACK_ALIGNMENT.md) for a requirement-by-requirement map to the official SDK, Studio, NitroCloud and supplied hackathon guidance.
-
-## NitroCloud deployment
-
-1. Push the public repository to GitHub.
-2. Open NitroStudio and verify every tool, resource, prompt, widget and health check.
-3. Connect NitroCloud and create an app/deployment from the repository.
-4. Add environment variables from `.env.example` in the NitroCloud dashboard.
-5. Deploy and wait for `Pending → Building → Deploying → Live`.
-6. Connect the live Streamable HTTP/SSE MCP endpoint in NitroStudio and rerun the smoke flow.
-
-## Judging smoke flow
-
-1. Fetch the baseline resource.
-2. Fetch the candidate resource.
-3. Run `run_impact_assessment({scenarioId:"risky"})`.
-4. Inspect the widget and provenance.
-5. Call `record_release_decision` with `BLOCK` and a reason.
-6. Fetch `apiguard://assessments/{assessmentId}` and verify the state changed.
-7. Show the MCP traffic log and live NitroCloud URL.
-
-## Security and honesty
-
-- Repository snippets are untrusted data.
-- The internal model receives no tools.
-- Model output is Zod-validated.
-- Failure becomes `REVIEW_REQUIRED`, not a green result.
-- Tokens and `.env` are never committed.
-- Snapshot mode is labelled visibly.
-- Search is scoped evidence collection, not complete dependency discovery.
-- The MVP records a governed decision; it does not enforce CI branch protection.
-
-## Before submission
-
-Replace placeholder snapshot repositories and commit SHAs with a snapshot generated from the team's real public demonstration repositories. Then run the workflow three times, test the NitroCloud deployment, record the maximum three-minute video and submit the public repository through the required Sample Apps and NitroCloud flow.
-
-
-## Verification status in the build VM
-
-The VM used to prepare this package had no outbound DNS access to `registry.npmjs.org`, so the requested `npx @nitrostack/cli init api-larp` command could not download the CLI. The requested exact command and the registry failure are preserved in `docs/CLI_EXACT_ATTEMPT.txt`; the earlier latest-version attempt is in `docs/CLI_ATTEMPT.txt`. The project was therefore scaffolded to the current official NitroStack CLI structure and SDK examples. Pure TypeScript domain tests were executed in the VM. A real `npm install`, NitroStack build, NitroStudio connection and NitroCloud deployment must be run on a networked machine before submission.
+[MIT](LICENSE)
