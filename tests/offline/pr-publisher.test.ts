@@ -139,3 +139,49 @@ test('creates a draft migration PR from the assessment-pinned commit', async () 
     if (old.base === undefined) delete process.env.GITHUB_API_BASE_URL; else process.env.GITHUB_API_BASE_URL = old.base;
   }
 });
+
+test('idempotent replay re-fetches the full PR and verifies pinned ancestry', async () => {
+  const originalFetch = globalThis.fetch;
+  const old = {
+    enabled: process.env.APIGUARD_GITHUB_WRITE_ENABLED,
+    repos: process.env.APIGUARD_WRITABLE_REPOSITORIES,
+    token: process.env.GITHUB_TOKEN,
+    base: process.env.GITHUB_API_BASE_URL
+  };
+  process.env.APIGUARD_GITHUB_WRITE_ENABLED = 'true';
+  process.env.APIGUARD_WRITABLE_REPOSITORIES = 'demo/consumer';
+  process.env.GITHUB_TOKEN = 'test-token';
+  process.env.GITHUB_API_BASE_URL = 'https://github.test';
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith('/repos/demo/consumer')) return Response.json({ default_branch: 'main' });
+    if (url.includes('/pulls?state=all')) return Response.json([{ number: 8 }]);
+    if (url.endsWith('/pulls/8')) return Response.json({
+      number: 8, html_url: 'https://github.com/demo/consumer/pull/8', draft: true, merged: false,
+      head: { ref: 'apiguard/existing', sha: 'commit-existing' }, base: { ref: 'main' }
+    });
+    if (url.endsWith('/git/commits/commit-existing')) return Response.json({ parents: [{ sha: 'abcdef1234567890' }] });
+    return new Response('unexpected', { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const result = await new PrPublisherService(new ApiGuardConfig()).createDraftPullRequest({
+      assessment: assessment(), repository: 'demo/consumer', idempotencyKey: 'migration-key',
+      files: [{ path: 'src/client.ts', proposedContent: 'updated', expectedSourceHash: '0'.repeat(64) }]
+    });
+    assert.equal(result.pullRequestNumber, 8);
+    assert.equal(result.draft, true);
+    assert.equal(result.merged, false);
+    assert.equal(result.idempotentReplay, true);
+    assert.ok(calls.some((url) => url.endsWith('/pulls/8')));
+    assert.ok(calls.some((url) => url.endsWith('/git/commits/commit-existing')));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (old.enabled === undefined) delete process.env.APIGUARD_GITHUB_WRITE_ENABLED; else process.env.APIGUARD_GITHUB_WRITE_ENABLED = old.enabled;
+    if (old.repos === undefined) delete process.env.APIGUARD_WRITABLE_REPOSITORIES; else process.env.APIGUARD_WRITABLE_REPOSITORIES = old.repos;
+    if (old.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = old.token;
+    if (old.base === undefined) delete process.env.GITHUB_API_BASE_URL; else process.env.GITHUB_API_BASE_URL = old.base;
+  }
+});

@@ -109,7 +109,10 @@ export class PrPublisherService {
       `/repos/${repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}`
     );
     if (existingPulls[0]) {
-      const existing = existingPulls[0];
+      const existing = await this.github<GitHubPullRequest>(
+        'GET',
+        `/repos/${repository}/pulls/${existingPulls[0].number}`
+      );
       if (!existing.draft || existing.merged) {
         throw new Error(`Existing idempotent PR #${existing.number} is no longer an open draft.`);
       }
