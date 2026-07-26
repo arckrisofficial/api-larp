@@ -44,6 +44,7 @@ export interface EvidenceItem {
   snippet: string;
   contentHash: string;
   htmlUrl?: string;
+  discoveryMethod?: 'GITHUB_CODE_SEARCH' | 'PINNED_TREE_SCAN';
 }
 
 export type EvidenceClassification =

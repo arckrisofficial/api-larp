@@ -4,8 +4,8 @@ import { EvidenceService } from './evidence.service.js';
 import { FixService } from './fix.service.js';
 import { SpecRepository } from './spec.repository.js';
 
-function jsonResource(uri: string, data: unknown) {
-  return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] };
+function jsonResource(_uri: string, data: unknown) {
+  return JSON.stringify(data, null, 2);
 }
 
 @Injectable({ deps: [SpecRepository, AssessmentService, EvidenceService, FixService] })

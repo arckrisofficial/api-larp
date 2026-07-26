@@ -1,5 +1,10 @@
 import { Injectable } from '@nitrostack/core';
 
+function stringValue(name: string, fallback: string): string {
+  const value = process.env[name]?.trim();
+  return value ? value : fallback;
+}
+
 function bool(name: string, fallback = false): boolean {
   const value = process.env[name];
   if (value === undefined) return fallback;
@@ -20,10 +25,19 @@ function csv(name: string): string[] {
 
 @Injectable()
 export class ApiGuardConfig {
-  readonly fixturesDir = process.env.APIGUARD_FIXTURES_DIR
-    ?? (process.env.NODE_ENV === 'production' ? 'dist/fixtures' : 'fixtures');
-  readonly demoRepositoriesDir = process.env.APIGUARD_DEMO_REPOSITORIES_DIR
-    ?? (process.env.NODE_ENV === 'production' ? 'dist/demo-repositories' : 'demo-repositories');
+  readonly fixturesDir = stringValue(
+  'APIGUARD_FIXTURES_DIR',
+  process.env.NODE_ENV === 'production'
+    ? 'dist/fixtures'
+    : 'fixtures'
+);
+
+  readonly demoRepositoriesDir = stringValue(
+    'APIGUARD_DEMO_REPOSITORIES_DIR',
+    process.env.NODE_ENV === 'production'
+      ? 'dist/demo-repositories'
+      : 'demo-repositories'
+  );
   readonly demoScenario = process.env.DEMO_SCENARIO ?? 'risky';
 
   readonly useLiveGitHub = bool('USE_LIVE_GITHUB', false);
