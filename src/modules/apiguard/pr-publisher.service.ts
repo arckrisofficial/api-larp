@@ -26,6 +26,12 @@ export interface CreateDraftPullRequestInput {
   idempotencyKey: string;
 }
 
+export interface GetPinnedMigrationSourcesInput {
+  assessment: Assessment;
+  repository: string;
+  paths?: string[];
+}
+
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -41,6 +47,62 @@ function safePath(filePath: string): string {
 @Injectable({ deps: [ApiGuardConfig] })
 export class PrPublisherService {
   constructor(private readonly config: ApiGuardConfig) {}
+
+  async getPinnedMigrationSources(input: GetPinnedMigrationSourcesInput) {
+    const repository = input.repository.toLowerCase();
+    this.assertRepositoryAllowed(repository);
+    if (!this.config.githubToken) throw new Error('GITHUB_TOKEN is required to read pinned migration sources.');
+    if (input.assessment.decisionStatus !== 'BLOCKED_PENDING_MIGRATION') {
+      throw new Error('Pinned migration sources require a BLOCKED_PENDING_MIGRATION assessment.');
+    }
+
+    const pinnedSha = input.assessment.repositoryCommits[repository]
+      ?? Object.entries(input.assessment.repositoryCommits)
+        .find(([name]) => name.toLowerCase() === repository)?.[1];
+    if (!pinnedSha || !/^[a-f0-9]{7,64}$/i.test(pinnedSha)) {
+      throw new Error(`Assessment has no valid pinned commit for ${repository}.`);
+    }
+
+    const impactedPaths = new Set(
+      input.assessment.evidence
+        .filter((item) => ['CONFIRMED_IMPACT', 'LIKELY_IMPACT'].includes(item.classification))
+        .filter((item) => item.repository.toLowerCase() === repository)
+        .map((item) => item.filePath.replaceAll('\\', '/'))
+    );
+    const selectedPaths = (input.paths?.length ? input.paths : [...impactedPaths]).map(safePath);
+    if (!selectedPaths.length) throw new Error(`Assessment has no confirmed or likely impacted files for ${repository}.`);
+
+    const files = [];
+    for (const filePath of selectedPaths) {
+      if (!impactedPaths.has(filePath)) {
+        throw new Error(`File ${filePath} is not confirmed or likely impacted evidence for ${repository}.`);
+      }
+      const current = await this.github<{ content?: string; encoding?: string }>(
+        'GET',
+        `/repos/${repository}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(pinnedSha)}`
+      );
+      if (current.encoding !== 'base64' || typeof current.content !== 'string') {
+        throw new Error(`Unable to read pinned source file ${filePath}.`);
+      }
+      const sourceContent = Buffer.from(current.content.replace(/\s/g, ''), 'base64').toString('utf8');
+      if (Buffer.byteLength(sourceContent, 'utf8') > 200_000) {
+        throw new Error(`Pinned source file ${filePath} exceeds the 200 KB migration limit.`);
+      }
+      files.push({
+        path: filePath,
+        sourceContent,
+        expectedSourceHash: sha256(sourceContent)
+      });
+    }
+
+    return {
+      assessmentId: input.assessment.id,
+      repository,
+      pinnedSourceCommit: pinnedSha,
+      files,
+      nextAction: 'Prepare complete proposedContent for each file, then call create_migration_pull_requests.'
+    };
+  }
 
   async publish(assessment: Assessment, prUrl: string, idempotencyKey: string) {
     this.assertWritesEnabled();

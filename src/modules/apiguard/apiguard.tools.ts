@@ -180,7 +180,8 @@ export class ApiGuardTools {
       changes,
       sha256(scenario.baseline),
       sha256(scenario.candidate),
-      input.forceRefresh
+      input.forceRefresh,
+      input.repositories
     );
 
     const snapshot = pair.snapshot;
@@ -488,6 +489,37 @@ export class ApiGuardTools {
     if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
 
     return this.prPublisherService.publish(assessment, input.prUrl, input.idempotencyKey);
+  }
+
+  @Tool({
+    name: 'get_pinned_migration_sources',
+    description: 'Read complete confirmed-impact source files from the assessment-pinned GitHub commit and return their exact SHA-256 hashes for a guarded draft migration PR. This tool is read-only.',
+    inputSchema: z.object({
+      assessmentId: z.string().regex(/^asm_[a-z0-9-]+$/),
+      repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+      paths: z.array(z.string().min(1).max(500)).min(1).max(10).optional()
+    }),
+    invocation: { invoking: 'Reading assessment-pinned migration sources…', invoked: 'Pinned migration sources ready' }
+  })
+  @CatchError()
+  async getPinnedMigrationSources(input: {
+    assessmentId: string;
+    repository: string;
+    paths?: string[];
+  }, ctx: ExecutionContext) {
+    const assessment = this.assessmentService.get(input.assessmentId);
+    if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
+    const result = await this.prPublisherService.getPinnedMigrationSources({
+      assessment,
+      repository: input.repository,
+      paths: input.paths
+    });
+    ctx.logger.info('Pinned migration sources read', {
+      assessmentId: input.assessmentId,
+      repository: result.repository,
+      files: result.files.length
+    });
+    return result;
   }
 
   @Tool({

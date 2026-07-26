@@ -33,11 +33,12 @@ export class EvidenceService {
     changes: ApiChange[],
     baselineSpecHash = '',
     candidateSpecHash = '',
-    forceRefresh = false
+    forceRefresh = false,
+    repositories?: string[]
   ): Promise<{ result: EvidenceDiscoveryResult; snapshot: EvidenceSnapshotV2 }> {
     const pair = this.config.useLiveGitHub
-      ? await this.githubProvider.discoverSnapshot(scenarioId, changes, baselineSpecHash, candidateSpecHash, forceRefresh)
-      : await this.snapshotProvider.discoverSnapshot(scenarioId, changes, baselineSpecHash, candidateSpecHash);
+      ? await this.githubProvider.discoverSnapshot(scenarioId, changes, baselineSpecHash, candidateSpecHash, forceRefresh, repositories)
+      : await this.snapshotProvider.discoverSnapshot(scenarioId, changes, baselineSpecHash, candidateSpecHash, repositories);
 
     this.snapshotRepo.save(pair.snapshot);
     return pair;

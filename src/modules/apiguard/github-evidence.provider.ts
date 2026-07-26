@@ -33,11 +33,29 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
     changes: ApiChange[],
     baselineSpecHash = '',
     candidateSpecHash = '',
-    forceRefresh = false
+    forceRefresh = false,
+    repositories?: string[]
   ): Promise<{ result: EvidenceDiscoveryResult; snapshot: EvidenceSnapshotV2 }> {
     if (!this.config.githubToken) throw new Error('GITHUB_TOKEN is required when USE_LIVE_GITHUB=true.');
 
-    const activeRepos = this.scopeRepository.listActive();
+    const allActiveRepos = this.scopeRepository.listActive();
+    const requested = new Set((repositories ?? []).map((repository) => repository.toLowerCase()));
+    const activeRepos = requested.size === 0
+      ? allActiveRepos
+      : allActiveRepos.filter((repository) => {
+          const slug = `${repository.owner}/${repository.name}`.toLowerCase();
+          return requested.has(slug) || requested.has(repository.name.toLowerCase());
+        });
+    if (requested.size > 0) {
+      const matched = new Set(activeRepos.flatMap((repository) => [
+        `${repository.owner}/${repository.name}`.toLowerCase(),
+        repository.name.toLowerCase()
+      ]));
+      const missing = [...requested].filter((repository) => !matched.has(repository));
+      if (missing.length > 0) {
+        throw new Error(`Requested repositories are not active in scope: ${missing.join(', ')}.`);
+      }
+    }
     if (!activeRepos.length) {
       throw new Error('No active repositories in scope. Use manage_repository_scope to add repositories.');
     }

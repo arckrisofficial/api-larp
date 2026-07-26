@@ -3,6 +3,7 @@ import { test, after } from 'node:test';
 import { ApiGuardConfig } from '../../src/modules/apiguard/config.service.js';
 import { ContractService } from '../../src/modules/apiguard/contract.service.js';
 import { RiskService } from '../../src/modules/apiguard/risk.service.js';
+import { SnapshotEvidenceProvider } from '../../src/modules/apiguard/snapshot-evidence.provider.js';
 
 after(() => {
   setTimeout(() => process.exit(0), 10);
@@ -50,4 +51,24 @@ test('RiskService: filters out hallucinated migration actions with non-matching 
   const res = await risk.assess(changes, evidence);
   assert.equal(res.evidence.length, 1);
   assert.equal(res.evidence[0]!.classification, 'CONFIRMED_IMPACT');
+});
+
+test('SnapshotEvidenceProvider: targeted refresh includes only requested consumer repository', async () => {
+  const provider = new SnapshotEvidenceProvider(new ApiGuardConfig());
+  const pair = await provider.discoverSnapshot(
+    'risky',
+    [],
+    'baseline-hash',
+    'candidate-hash',
+    ['arckrisofficial/apiguard-go-consumer']
+  );
+
+  assert.equal(pair.snapshot.coverage.repositoriesExpected, 1);
+  assert.equal(pair.snapshot.coverage.repositoriesChecked, 1);
+  assert.deepEqual(pair.snapshot.repositories.map((repository) => repository.repository), [
+    'arckrisofficial/apiguard-go-consumer'
+  ]);
+  assert.ok(pair.snapshot.results.length > 0);
+  assert.ok(pair.snapshot.results.every((result) => result.repository === 'arckrisofficial/apiguard-go-consumer'));
+  assert.ok(pair.result.items.every((item) => item.repository === 'arckrisofficial/apiguard-go-consumer'));
 });

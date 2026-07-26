@@ -140,6 +140,43 @@ test('creates a draft migration PR from the assessment-pinned commit', async () 
   }
 });
 
+test('reads complete pinned impacted sources and returns the guarded source hash', async () => {
+  const originalFetch = globalThis.fetch;
+  const old = {
+    repos: process.env.APIGUARD_WRITABLE_REPOSITORIES,
+    token: process.env.GITHUB_TOKEN,
+    base: process.env.GITHUB_API_BASE_URL
+  };
+  process.env.APIGUARD_WRITABLE_REPOSITORIES = 'demo/consumer';
+  process.env.GITHUB_TOKEN = 'test-token';
+  process.env.GITHUB_API_BASE_URL = 'https://github.test';
+  const source = 'export const name = response.name;\n';
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('/contents/src/client.ts')) {
+      return Response.json({ encoding: 'base64', content: Buffer.from(source).toString('base64') });
+    }
+    return new Response(`unexpected ${url}`, { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const result = await new PrPublisherService(new ApiGuardConfig()).getPinnedMigrationSources({
+      assessment: assessment(),
+      repository: 'demo/consumer'
+    });
+    assert.equal(result.pinnedSourceCommit, 'abcdef1234567890');
+    assert.equal(result.files.length, 1);
+    assert.equal(result.files[0]!.path, 'src/client.ts');
+    assert.equal(result.files[0]!.sourceContent, source);
+    assert.equal(result.files[0]!.expectedSourceHash, createHash('sha256').update(source).digest('hex'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (old.repos === undefined) delete process.env.APIGUARD_WRITABLE_REPOSITORIES; else process.env.APIGUARD_WRITABLE_REPOSITORIES = old.repos;
+    if (old.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = old.token;
+    if (old.base === undefined) delete process.env.GITHUB_API_BASE_URL; else process.env.GITHUB_API_BASE_URL = old.base;
+  }
+});
+
 test('idempotent replay re-fetches the full PR and verifies pinned ancestry', async () => {
   const originalFetch = globalThis.fetch;
   const old = {

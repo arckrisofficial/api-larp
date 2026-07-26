@@ -27,13 +27,31 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
     scenarioId: string,
     changes: ApiChange[],
     baselineSpecHash = '',
-    candidateSpecHash = ''
+    candidateSpecHash = '',
+    repositories?: string[]
   ): Promise<{ result: EvidenceDiscoveryResult; snapshot: EvidenceSnapshotV2 }> {
     const rawSnapshot = await this.loadSnapshot(scenarioId);
     const queryMap = new Map(rawSnapshot.queries.map((query) => [query.queryId, query] as const));
     const validChangeIds = new Set(changes.map((change) => change.id));
+    const requested = new Set((repositories ?? []).map((repository) => repository.toLowerCase()));
+    const selectedRepositories = rawSnapshot.repositories.filter((repository) => {
+      const slug = `${repository.owner}/${repository.name}`.toLowerCase();
+      return requested.size === 0 || requested.has(slug) || requested.has(repository.name.toLowerCase());
+    });
+    if (requested.size > 0) {
+      const matched = new Set(selectedRepositories.flatMap((repository) => [
+        `${repository.owner}/${repository.name}`.toLowerCase(),
+        repository.name.toLowerCase()
+      ]));
+      const missing = [...requested].filter((repository) => !matched.has(repository));
+      if (missing.length > 0) {
+        throw new Error(`Requested repositories are not present in the snapshot: ${missing.join(', ')}.`);
+      }
+    }
+    const selectedSlugs = new Set(selectedRepositories.map((repository) => `${repository.owner}/${repository.name}`.toLowerCase()));
+    const selectedResults = rawSnapshot.results.filter((result: any) => selectedSlugs.has(result.repository.toLowerCase()));
 
-    const items: EvidenceItem[] = rawSnapshot.results.map((result: any) => {
+    const items: EvidenceItem[] = selectedResults.map((result: any) => {
       const query = queryMap.get(result.queryId);
       if (!query) throw new Error(`Snapshot result references unknown query ${result.queryId}`);
       if (sha256(result.snippet) !== result.contentHash) {
@@ -60,15 +78,11 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
       };
     });
 
-    const repoMap = new Map<string, { owner: string; name: string; branch: string; commitSha: string }>();
-    for (const item of items) {
-      const [owner, name] = item.repository.split('/');
-      repoMap.set(item.repository, { owner: owner || '', name: name || item.repository, branch: item.branch, commitSha: item.commitSha });
-    }
-
     const snapshotV2: EvidenceSnapshotV2 = {
       schemaVersion: 2,
-      snapshotId: `snap_fixture_${scenarioId}`,
+      snapshotId: requested.size === 0
+        ? `snap_fixture_${scenarioId}`
+        : `snap_fixture_${scenarioId}_${sha256([...requested].sort()).slice(0, 10)}`,
       scenarioId,
       origin: 'FIXTURE',
       baselineSpecHash,
@@ -76,20 +90,20 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
       repositoryScopeVersion: 0,
       queryPlanHash: sha256(rawSnapshot.queries),
       generatedAt: rawSnapshot.generatedAt,
-      repositories: Array.from(repoMap.values()).map(r => ({
-        repository: `${r.owner}/${r.name}`,
-        branch: r.branch,
-        commitSha: r.commitSha,
+      repositories: selectedRepositories.map((repository) => ({
+        repository: `${repository.owner}/${repository.name}`,
+        branch: repository.defaultBranch,
+        commitSha: repository.commitSha,
         scanStatus: 'COMPLETE'
       })),
       coverage: {
-        repositoriesExpected: repoMap.size,
-        repositoriesChecked: repoMap.size,
+        repositoriesExpected: selectedRepositories.length,
+        repositoriesChecked: selectedRepositories.length,
         repositoriesFailed: 0,
         ratio: 1
       },
       queries: rawSnapshot.queries.map((q) => ({ queryId: q.queryId, query: q.query, generatedFromChangeIds: q.generatedFromChangeIds })),
-      results: rawSnapshot.results.map((r: any) => ({
+      results: selectedResults.map((r: any) => ({
         evidenceId: r.evidenceId,
         changeSemanticKey: r.changeSemanticKey || 'legacy',
         consumerImpactKey: r.consumerImpactKey || 'legacy',
