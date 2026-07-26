@@ -7,6 +7,16 @@ async function bootstrap(): Promise<void> {
   await server.start();
 }
 
+process.on('unhandledRejection', (reason, promise) => {
+  process.stderr.write(`[api-larp] fatal unhandled rejection at: ${promise} reason: ${reason}\n`);
+  // Do NOT exit here so the MCP server stays alive
+});
+
+process.on('uncaughtException', (err) => {
+  process.stderr.write(`[api-larp] fatal uncaught exception: ${err.message}\n`);
+  // Do NOT exit here so the MCP server stays alive
+});
+
 bootstrap().catch((error: unknown) => {
   const message = error instanceof Error ? error.stack ?? error.message : String(error);
   process.stderr.write(`[api-larp] fatal bootstrap error: ${message}\n`);

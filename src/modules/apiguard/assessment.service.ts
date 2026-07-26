@@ -62,22 +62,21 @@ export class AssessmentService {
     const risk = await this.riskService.assess(changes, snapshot.results.map(snapshotResultToEvidenceItem));
     const now = new Date().toISOString();
 
-    const expectedRepos = snapshot.repositoriesExpected.map((r) => `${r.owner}/${r.name}`);
-    const checkedRepos = snapshot.repositoriesChecked;
-    const failedRepos = snapshot.repositoriesFailed.map((f) => f.repository);
-    const coverageRatio = expectedRepos.length > 0 ? checkedRepos.length / expectedRepos.length : 0;
+    const expectedReposCount = snapshot.coverage.repositoriesExpected;
+    const checkedReposCount = snapshot.coverage.repositoriesChecked;
+    const failedReposCount = snapshot.coverage.repositoriesFailed;
 
     const repositoryCommits = Object.fromEntries(
-      snapshot.repositoriesExpected.map((r) => [`${r.owner}/${r.name}`, r.commitSha])
+      snapshot.repositories.map((r) => [r.repository, r.commitSha])
     );
 
     // Truthful completeness and severity logic
     const { status, severity, extraLimitations } = computeTruthfulStatusAndSeverity(
       changes,
       risk.evidence,
-      checkedRepos.length,
-      expectedRepos.length,
-      failedRepos.length,
+      checkedReposCount,
+      expectedReposCount,
+      failedReposCount,
       risk.classifierMode
     );
 
@@ -93,18 +92,21 @@ export class AssessmentService {
       classifierMode: risk.classifierMode,
       repositoryScopeVersion: snapshot.repositoryScopeVersion,
       evidenceSnapshotId: snapshot.snapshotId,
-      repositoriesExpected: expectedRepos,
-      repositoriesChecked: checkedRepos,
-      repositoriesFailed: failedRepos,
-      coverageRatio,
+      coverage: snapshot.coverage,
       changes,
       evidence: risk.evidence,
       overallSeverity: severity,
-      limitations: [...snapshot.repositoriesFailed.map((f) => `Repo failure ${f.repository}: ${f.errorCode}`), ...risk.limitations, ...extraLimitations],
+      limitations: [
+        ...snapshot.repositories.filter(r => r.scanStatus === 'FAILED').map(r => `Repo failure ${r.repository}: ${r.error}`),
+        ...risk.limitations,
+        ...extraLimitations
+      ],
       durationMs: Date.now() - started,
       createdAt: now,
       updatedAt: now,
-      version: 1
+      version: 1,
+      expectedAssessmentVersion: 1,
+      policyEvaluations: []
     };
 
     return this.repository.create(assessment);
@@ -126,18 +128,25 @@ export class AssessmentService {
     }
     return this.repository.update(applyDecision(current, request));
   }
+
+  update(assessment: Assessment): Assessment {
+    return this.repository.update(assessment);
+  }
 }
 
 function snapshotResultToEvidenceItem(r: any) {
   return {
     id: r.evidenceId,
+    changeSemanticKey: r.changeSemanticKey,
+    consumerImpactKey: r.consumerImpactKey,
+    evidenceFingerprint: r.evidenceFingerprint,
     sourceMode: 'live' as const,
     capturedAt: new Date().toISOString(),
     repository: r.repository,
     branch: r.branch,
     commitSha: r.commitSha,
     searchQuery: '',
-    generatedFromChangeIds: [],
+    relatedChangeIds: [],
     filePath: r.filePath,
     lineStart: r.lineStart,
     lineEnd: r.lineEnd,

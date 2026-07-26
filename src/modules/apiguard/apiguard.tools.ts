@@ -8,6 +8,29 @@ import { EvidenceService } from './evidence.service.js';
 import { RiskService } from './risk.service.js';
 import { RepositoryScopeService } from './repository-scope.service.js';
 import { SpecRepository } from './spec.repository.js';
+import { OwnershipService } from './ownership.service.js';
+import { PolicyService } from './policy.service.js';
+
+import { LocalArtifactStore } from './artifact-store.service.js';
+
+import { PrPublisherService } from './pr-publisher.service.js';
+
+function CatchError() {
+  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    const originalMethod = descriptor.value;
+    descriptor.value = async function (...args: any[]) {
+      try {
+        return await originalMethod.apply(this, args);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const ctx = args.find(a => a && typeof a.logger?.error === 'function');
+        if (ctx) ctx.logger.error(`[Tool:${propertyKey}] failed: ${message}`);
+        return { error: true, message };
+      }
+    };
+    return descriptor;
+  };
+}
 
 const ScenarioInput = z.object({
   scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Fixture or registered scenario identifier.')
@@ -22,7 +45,11 @@ const ScenarioInput = z.object({
     EvidenceService,
     RiskService,
     AssessmentService,
-    RepositoryScopeService
+    RepositoryScopeService,
+    OwnershipService,
+    PolicyService,
+    LocalArtifactStore,
+    PrPublisherService
   ]
 })
 export class ApiGuardTools {
@@ -34,7 +61,11 @@ export class ApiGuardTools {
     private readonly evidenceService: EvidenceService,
     private readonly riskService: RiskService,
     private readonly assessmentService: AssessmentService,
-    private readonly scopeService: RepositoryScopeService
+    private readonly scopeService: RepositoryScopeService,
+    private readonly ownershipService: OwnershipService,
+    private readonly policyService: PolicyService,
+    private readonly artifactStore: LocalArtifactStore,
+    private readonly prPublisherService: PrPublisherService
   ) {}
 
   @Tool({
@@ -57,6 +88,7 @@ export class ApiGuardTools {
       response: { scenarioId: 'custom_user_v2', sourceType: 'INLINE', operationCountBaseline: 0, operationCountCandidate: 0 }
     }
   })
+  @CatchError()
   async registerContractPair(
     input: {
       scenarioId?: string;
@@ -82,6 +114,7 @@ export class ApiGuardTools {
     invocation: { invoking: 'Comparing API contracts…', invoked: 'API contract comparison complete' },
     examples: { request: { scenarioId: 'risky' }, response: { scenarioId: 'risky', summary: { totalChanges: 4, breakingChanges: 3 } } }
   })
+  @CatchError()
   async diffApiSpec(input: { scenarioId?: string }, ctx: ExecutionContext) {
     const { scenarioId } = ScenarioInput.parse(input ?? {});
     const scenario = await this.specs.getScenario(scenarioId);
@@ -118,31 +151,8 @@ export class ApiGuardTools {
   }
 
   @Tool({
-    name: 'discover_consumer_evidence',
-    description: '[DEPRECATED] Collect consumer evidence. Prefer using apiguard://evidence-snapshots/{snapshotId} resource instead.',
-    inputSchema: ScenarioInput,
-    invocation: { invoking: 'Collecting consumer evidence (deprecated)…', invoked: 'Consumer evidence collected' },
-    examples: { request: { scenarioId: 'risky' }, response: { deprecated: true, evidenceCount: 4 } }
-  })
-  async discoverEvidence(input: { scenarioId?: string }, ctx: ExecutionContext) {
-    const { scenarioId } = ScenarioInput.parse(input ?? {});
-    const scenario = await this.specs.getScenario(scenarioId);
-    const changes = this.diffService.diff(scenario);
-    const result = await this.evidenceService.discover(scenarioId, changes);
-    ctx.logger.info('Consumer evidence collected (deprecated path)', { count: result.items.length });
-    return {
-      deprecated: true,
-      replacementResourceUri: 'apiguard://evidence-snapshots/{snapshotId}',
-      scenarioId,
-      sourceMode: result.sourceMode,
-      evidenceCount: result.items.length,
-      limitations: result.limitations,
-      evidence: result.items
-    };
-  }
-
-  @Tool({
     name: 'refresh_repository_evidence',
+    taskSupport: 'optional',
     description: 'Perform an evidence scan across active scope repositories, update commit SHAs, and generate an immutable versioned EvidenceSnapshotV2 package.',
     inputSchema: z.object({
       scenarioId: z.string().regex(/^[a-z0-9_-]+$/i).optional().default('risky').describe('Scenario identifier.'),
@@ -155,6 +165,7 @@ export class ApiGuardTools {
       response: { snapshotId: 'snap_123', status: 'COMPLETE', evidenceItems: 4 }
     }
   })
+  @CatchError()
   async refreshRepositoryEvidence(
     input: { scenarioId?: string; repositories?: string[]; forceRefresh?: boolean },
     ctx: ExecutionContext
@@ -172,7 +183,7 @@ export class ApiGuardTools {
     );
 
     const snapshot = pair.snapshot;
-    const status = snapshot.repositoriesFailed.length > 0 ? 'PARTIAL' : 'COMPLETE';
+    const status = snapshot.coverage.repositoriesFailed > 0 ? 'PARTIAL' : 'COMPLETE';
 
     ctx.logger.info('Evidence snapshot created', { snapshotId: snapshot.snapshotId, items: snapshot.results.length });
 
@@ -181,9 +192,9 @@ export class ApiGuardTools {
       snapshotId: snapshot.snapshotId,
       status,
       repositoryScopeVersion: snapshot.repositoryScopeVersion,
-      repositoriesExpected: snapshot.repositoriesExpected.map((r) => `${r.owner}/${r.name}`),
-      repositoriesChecked: snapshot.repositoriesChecked,
-      repositoriesFailed: snapshot.repositoriesFailed,
+      repositoriesExpected: snapshot.coverage.repositoriesExpected,
+      repositoriesChecked: snapshot.coverage.repositoriesChecked,
+      repositoriesFailed: snapshot.coverage.repositoriesFailed,
       evidenceItems: snapshot.results.length,
       generatedAt: snapshot.generatedAt,
       baselineSpecHash: snapshot.baselineSpecHash,
@@ -203,6 +214,7 @@ export class ApiGuardTools {
     invocation: { invoking: 'Assessing consumer impact…', invoked: 'Consumer impact assessed' },
     examples: { request: { scenarioId: 'risky' }, response: { overallSeverity: 'HIGH', classifierMode: 'deterministic-fallback' } }
   })
+  @CatchError()
   async assessRisk(input: { scenarioId?: string; snapshotId?: string }, ctx: ExecutionContext) {
     const scenarioId = input.scenarioId || 'risky';
     const scenario = await this.specs.getScenario(scenarioId);
@@ -215,9 +227,13 @@ export class ApiGuardTools {
     }
 
     const items = snapshot.results.map((r) => ({
-      id: r.evidenceId, sourceMode: 'live' as const, capturedAt: snapshot.generatedAt,
+      id: r.evidenceId,
+      changeSemanticKey: r.changeSemanticKey,
+      consumerImpactKey: r.consumerImpactKey,
+      evidenceFingerprint: r.evidenceFingerprint,
+      sourceMode: 'live' as const, capturedAt: snapshot.generatedAt,
       repository: r.repository, branch: r.branch, commitSha: r.commitSha,
-      searchQuery: '', generatedFromChangeIds: [], filePath: r.filePath,
+      searchQuery: '', relatedChangeIds: [], filePath: r.filePath,
       lineStart: r.lineStart, lineEnd: r.lineEnd, snippet: r.snippet,
       contentHash: r.contentHash, htmlUrl: r.htmlUrl
     }));
@@ -237,6 +253,59 @@ export class ApiGuardTools {
   }
 
   @Tool({
+    name: 'resolve_consumer_owners',
+    description: 'Find CODEOWNERS for all identified evidence using the original EvidenceSnapshotV2.',
+    inputSchema: z.object({
+      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to resolve owners for.')
+    }),
+    invocation: { invoking: 'Resolving owners...', invoked: 'Owners resolved' }
+  })
+  @CatchError()
+  async resolveConsumerOwners(input: { assessmentId: string }, ctx: ExecutionContext) {
+    const assessment = this.assessmentService.get(input.assessmentId);
+    if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
+    if (!assessment.evidenceSnapshotId) throw new Error(`Assessment ${input.assessmentId} has no associated evidence snapshot`);
+    const snapshot = this.evidenceService.getSnapshot(assessment.evidenceSnapshotId);
+    if (!snapshot) throw new Error(`Snapshot ${assessment.evidenceSnapshotId} not found`);
+
+    const resolution = await this.ownershipService.resolve(assessment, snapshot);
+    assessment.ownershipResolution = resolution;
+    this.assessmentService.update(assessment);
+    
+    return {
+      resolutionId: resolution.resolutionId,
+      assessmentId: resolution.assessmentId,
+      resolvedAt: resolution.resolvedAt,
+      assignments: resolution.assignments.length,
+      unresolvedCount: resolution.unresolvedCount,
+      warnings: resolution.warnings
+    };
+  }
+
+  @Tool({
+    name: 'evaluate_release_policy',
+    description: 'Evaluate a semantic assessment against a deterministic policy profile.',
+    inputSchema: z.object({
+      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to evaluate.'),
+      profile: z.enum(['STRICT', 'BALANCED']).default('STRICT').describe('Policy profile to enforce.')
+    }),
+    invocation: { invoking: 'Evaluating policy...', invoked: 'Policy evaluated' }
+  })
+  @CatchError()
+  async evaluateReleasePolicy(input: { assessmentId: string; profile?: 'STRICT' | 'BALANCED' }, ctx: ExecutionContext) {
+    const assessment = this.assessmentService.get(input.assessmentId);
+    if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
+
+    const evaluation = await this.policyService.evaluate(assessment, input.profile || 'STRICT');
+    if (!assessment.policyEvaluations) assessment.policyEvaluations = [];
+    assessment.policyEvaluations.push(evaluation);
+    this.assessmentService.update(assessment);
+
+    return evaluation;
+  }
+
+
+  @Tool({
     name: 'run_impact_assessment',
     description: 'Run the complete reliable APIGuard workflow and persist a versioned release-impact assessment.',
     inputSchema: z.object({
@@ -248,6 +317,7 @@ export class ApiGuardTools {
     examples: { request: { scenarioId: 'risky' }, response: { analysisStatus: 'COMPLETE', overallSeverity: 'HIGH' } }
   })
   @Widget('api-impact-summary')
+  @CatchError()
   async runImpactAssessment(input: { scenarioId?: string; snapshotId?: string; forceRefresh?: boolean }, ctx: ExecutionContext) {
     const scenarioId = input.scenarioId || 'risky';
     const assessment = await this.assessmentService.run({ scenarioId, snapshotId: input.snapshotId, forceRefresh: input.forceRefresh });
@@ -277,6 +347,7 @@ export class ApiGuardTools {
     }
   })
   @Widget('api-impact-summary')
+  @CatchError()
   async recordDecision(
     input: {
       assessmentId: string;
@@ -323,6 +394,7 @@ export class ApiGuardTools {
       response: { changed: true, action: 'ADD', repository: { owner: 'arckrisofficial', name: 'api-larp', status: 'ACTIVE' }, snapshotStatus: 'STALE' }
     }
   })
+  @CatchError()
   async manageRepositoryScope(
     input: {
       action: 'ADD' | 'REMOVE';
@@ -340,5 +412,85 @@ export class ApiGuardTools {
       : await this.scopeService.applyRemove({ owner: input.owner, repository: input.repository, reason: input.reason, actorId });
     ctx.logger.info('Repository scope updated', { action: input.action, repo: `${input.owner}/${input.repository}`, changed: result.changed });
     return result;
+  }
+  @Tool({
+    name: 'export_release_evidence_package',
+    description: 'Export an immutable, standalone JSON evidence bundle containing the snapshot, semantic analysis, ownership and policy decisions.',
+    inputSchema: z.object({
+      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to export.')
+    }),
+    invocation: { invoking: 'Exporting evidence bundle...', invoked: 'Evidence bundle exported' }
+  })
+  @CatchError()
+  async exportReleaseEvidencePackage(input: { assessmentId: string }, ctx: ExecutionContext) {
+    const assessment = this.assessmentService.get(input.assessmentId);
+    if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
+
+    if (!assessment.evidenceSnapshotId) throw new Error(`Assessment has no snapshot ID.`);
+    const snapshot = this.evidenceService.getSnapshot(assessment.evidenceSnapshotId);
+    if (!snapshot) throw new Error(`Snapshot ${assessment.evidenceSnapshotId} not found`);
+
+    const timestamp = assessment.updatedAt || assessment.createdAt || new Date().toISOString();
+    const bundle = {
+      bundleId: `pkg_${sha256([assessment.id, assessment.version, timestamp].join('|')).slice(0, 16)}`,
+      exportedAt: timestamp,
+      assessment,
+      snapshot
+    };
+
+    await this.artifactStore.createOnce('evidence-packages', bundle.bundleId, bundle);
+    
+    return {
+      bundleId: bundle.bundleId,
+      exportedAt: bundle.exportedAt,
+      artifactUri: `apiguard://evidence-packages/${bundle.bundleId}`,
+      fileSize: Buffer.byteLength(JSON.stringify(bundle), 'utf8')
+    };
+  }
+
+  @Tool({
+    name: 'verify_migration_readiness',
+    description: 'Provide an overall readiness check on the package before proceeding to code migration tooling.',
+    inputSchema: z.object({
+      bundleId: z.string().regex(/^pkg_[a-z0-9]+$/).describe('The Evidence Package ID to verify.')
+    }),
+    invocation: { invoking: 'Verifying readiness...', invoked: 'Readiness verified' }
+  })
+  @CatchError()
+  async verifyMigrationReadiness(input: { bundleId: string }, ctx: ExecutionContext) {
+    const bundle = await this.artifactStore.get<any>('evidence-packages', input.bundleId);
+    if (!bundle) throw new Error(`Evidence package ${input.bundleId} not found.`);
+
+    const assessment = bundle.assessment;
+    
+    const policyPass = assessment.policyEvaluations?.length > 0 && assessment.policyEvaluations.every((p: any) => p.verdict !== 'BLOCK');
+    const hasAssignments = assessment.ownershipResolution?.assignments?.length > 0;
+    
+    const isReady = policyPass && hasAssignments;
+    
+    return {
+      bundleId: input.bundleId,
+      readyForMigration: isReady,
+      reason: isReady ? 'Policy passes and owners are assigned' : 'Policy blocks or missing owners',
+      recommendedNextSteps: isReady ? ['Generate migration PRs for assigned owners'] : ['Review blocking policies or resolve unowned code']
+    };
+  }
+
+  @Tool({
+    name: 'publish_assessment_to_pr',
+    description: 'Publish the assessment summary to a GitHub Pull Request using an idempotency key.',
+    inputSchema: z.object({
+      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to publish.'),
+      prUrl: z.string().url().describe('The URL of the GitHub Pull Request to publish to.'),
+      idempotencyKey: z.string().describe('Idempotency key to prevent duplicate comments or update existing ones.')
+    }),
+    invocation: { invoking: 'Publishing to PR...', invoked: 'Published to PR' }
+  })
+  @CatchError()
+  async publishAssessmentToPr(input: { assessmentId: string; prUrl: string; idempotencyKey: string }, ctx: ExecutionContext) {
+    const assessment = this.assessmentService.get(input.assessmentId);
+    if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
+
+    return this.prPublisherService.publish(assessment, input.prUrl, input.idempotencyKey);
   }
 }

@@ -33,7 +33,7 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
     const queryMap = new Map(rawSnapshot.queries.map((query) => [query.queryId, query] as const));
     const validChangeIds = new Set(changes.map((change) => change.id));
 
-    const items: EvidenceItem[] = rawSnapshot.results.map((result) => {
+    const items: EvidenceItem[] = rawSnapshot.results.map((result: any) => {
       const query = queryMap.get(result.queryId);
       if (!query) throw new Error(`Snapshot result references unknown query ${result.queryId}`);
       if (sha256(result.snippet) !== result.contentHash) {
@@ -41,13 +41,16 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
       }
       return {
         id: result.evidenceId,
+        changeSemanticKey: result.changeSemanticKey,
+        consumerImpactKey: result.consumerImpactKey,
+        evidenceFingerprint: result.evidenceFingerprint,
         sourceMode: 'snapshot',
         capturedAt: rawSnapshot.generatedAt,
         repository: result.repository,
         branch: result.branch,
         commitSha: result.commitSha,
         searchQuery: query.query,
-        generatedFromChangeIds: query.generatedFromChangeIds.filter((id: string) => validChangeIds.has(id)),
+        relatedChangeIds: query.generatedFromChangeIds.filter((id: string) => validChangeIds.has(id)),
         filePath: result.filePath,
         lineStart: result.lineStart,
         lineEnd: result.lineEnd,
@@ -73,12 +76,24 @@ export class SnapshotEvidenceProvider implements EvidenceProvider {
       repositoryScopeVersion: 0,
       queryPlanHash: sha256(rawSnapshot.queries),
       generatedAt: rawSnapshot.generatedAt,
-      repositoriesExpected: Array.from(repoMap.values()),
-      repositoriesChecked: Array.from(repoMap.keys()),
-      repositoriesFailed: [],
+      repositories: Array.from(repoMap.values()).map(r => ({
+        repository: `${r.owner}/${r.name}`,
+        branch: r.branch,
+        commitSha: r.commitSha,
+        scanStatus: 'COMPLETE'
+      })),
+      coverage: {
+        repositoriesExpected: repoMap.size,
+        repositoriesChecked: repoMap.size,
+        repositoriesFailed: 0,
+        ratio: 1
+      },
       queries: rawSnapshot.queries.map((q) => ({ queryId: q.queryId, query: q.query, generatedFromChangeIds: q.generatedFromChangeIds })),
-      results: rawSnapshot.results.map((r) => ({
+      results: rawSnapshot.results.map((r: any) => ({
         evidenceId: r.evidenceId,
+        changeSemanticKey: r.changeSemanticKey || 'legacy',
+        consumerImpactKey: r.consumerImpactKey || 'legacy',
+        evidenceFingerprint: r.evidenceFingerprint || 'legacy',
         repository: r.repository,
         branch: r.branch,
         commitSha: r.commitSha,

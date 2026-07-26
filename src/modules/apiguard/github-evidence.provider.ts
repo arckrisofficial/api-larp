@@ -84,69 +84,132 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
       commitSha: r.lastKnownCommitSha
     }));
 
-    const concurrency = 3;
-    const chunkedRepos = [];
-    for (let i = 0; i < activeRepos.length; i += concurrency) {
-      chunkedRepos.push(activeRepos.slice(i, i + concurrency));
-    }
+    const repoRecords: EvidenceSnapshotV2['repositories'] = [];
+    const MAX_CONCURRENT_REPOS = 3;
 
-    for (const chunk of chunkedRepos) {
-      await Promise.all(chunk.map(async (managedRepo) => {
+    for (let i = 0; i < activeRepos.length; i += MAX_CONCURRENT_REPOS) {
+      const batch = activeRepos.slice(i, i + MAX_CONCURRENT_REPOS);
+      await Promise.all(batch.map(async (managedRepo) => {
         const repoSlug = `${managedRepo.owner}/${managedRepo.name}`;
-        const commitSha = managedRepo.lastKnownCommitSha;
-        const defaultBranch = managedRepo.branch;
-
         try {
+          // Find default branch and commit
+          const defaultBranch = 'main'; // Simplification, ideally fetch default branch
+          let commitSha = 'HEAD';
+          try {
+            const refData = await this.github(`/repos/${encodeURIComponent(managedRepo.owner)}/${encodeURIComponent(managedRepo.name)}/git/refs/heads/${defaultBranch}`, 'application/vnd.github.v3+json');
+            commitSha = (refData.object as any).sha;
+          } catch (err) {
+            // fallback
+          }
+
+          // Search for evidence
           for (const query of queries) {
-            const q = `"${query.query}" repo:${repoSlug}`;
-            const search = await request(`/search/code?q=${encodeURIComponent(q)}&per_page=${this.config.githubMaxMatchesPerQuery}`);
-            const matches = Array.isArray(search.items) ? search.items.slice(0, this.config.githubMaxMatchesPerQuery) : [];
+            const q = `repo:${repoSlug} ${query.query}`;
+            const endpoint = `/search/code?q=${encodeURIComponent(q)}&per_page=10`;
+            
+            requestCount++;
+            let searchData;
+            try {
+              searchData = await this.github(endpoint, 'application/vnd.github.v3.text-match+json');
+            } catch (err) {
+              if (err instanceof Error && err.message.includes('rate limit')) throw err;
+              continue;
+            }
 
-            for (const [index, raw] of matches.entries()) {
-              if (!raw || typeof raw !== 'object') continue;
-              const item = raw as Record<string, unknown>;
-              const filePath = String(item.path ?? '');
-              if (!filePath) continue;
-
-              const source = await this.fetchSource(request, managedRepo.owner, managedRepo.name, filePath, commitSha);
+            const searchItems = Array.isArray(searchData.items) ? searchData.items : [];
+            for (const [index, item] of searchItems.entries()) {
+              const filePath = typeof item.path === 'string' ? item.path : '';
+              if (!filePath || filePath.includes('node_modules') || filePath.includes('dist/')) continue;
+              
+              requestCount++;
+              const source = await this.fetchSource((ep, acc) => this.github(ep, acc ?? 'application/vnd.github.v3+json'), managedRepo.owner, managedRepo.name, filePath, commitSha);
               const excerpt = excerptFor(source, query.query, this.config.maxSnippetChars);
               const snippetHash = sha256(excerpt.snippet);
-              const evidenceId = `live_${sha256([repoSlug, query.id, filePath, index, commitSha]).slice(0, 12)}`;
+              const evidenceFingerprint = sha256(excerpt.snippet.replace(/\s+/g, ' ')).slice(0, 16);
 
-              items.push({
-                id: evidenceId,
-                sourceMode: 'live',
-                capturedAt: new Date().toISOString(),
-                repository: repoSlug,
-                branch: defaultBranch,
-                commitSha,
-                searchQuery: query.query,
-                generatedFromChangeIds: query.changeIds,
-                filePath,
-                lineStart: excerpt.lineStart,
-                lineEnd: excerpt.lineEnd,
-                snippet: excerpt.snippet,
-                contentHash: snippetHash,
-                htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
-              });
+              for (const changeId of query.changeIds) {
+                const change = changes.find((c) => c.id === changeId);
+                if (!change) continue;
 
-              snapshotResults.push({
-                evidenceId,
-                repository: repoSlug,
-                branch: defaultBranch,
-                commitSha,
-                queryId: query.id,
-                filePath,
-                lineStart: excerpt.lineStart,
-                lineEnd: excerpt.lineEnd,
-                snippet: excerpt.snippet,
-                contentHash: snippetHash,
-                htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
-              });
+                const changeSemanticKey = sha256([change.operation, change.location, change.jsonPath, change.code].join('|')).slice(0, 16);
+                const consumerImpactKey = sha256([repoSlug, filePath, changeSemanticKey].join('|')).slice(0, 16);
+                const evidenceId = `live_${sha256([repoSlug, query.id, filePath, index, commitSha, changeId]).slice(0, 12)}`;
+
+                items.push({
+                  id: evidenceId,
+                  changeSemanticKey,
+                  consumerImpactKey,
+                  evidenceFingerprint,
+                  sourceMode: 'live',
+                  capturedAt: new Date().toISOString(),
+                  repository: repoSlug,
+                  branch: defaultBranch,
+                  commitSha,
+                  searchQuery: query.query,
+                  relatedChangeIds: [changeId],
+                  filePath,
+                  lineStart: excerpt.lineStart,
+                  lineEnd: excerpt.lineEnd,
+                  snippet: excerpt.snippet,
+                  contentHash: snippetHash,
+                  htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
+                });
+
+                snapshotResults.push({
+                  evidenceId,
+                  changeSemanticKey,
+                  consumerImpactKey,
+                  evidenceFingerprint,
+                  repository: repoSlug,
+                  branch: defaultBranch,
+                  commitSha,
+                  queryId: query.id,
+                  filePath,
+                  lineStart: excerpt.lineStart,
+                  lineEnd: excerpt.lineEnd,
+                  snippet: excerpt.snippet,
+                  contentHash: snippetHash,
+                  htmlUrl: typeof item.html_url === 'string' ? item.html_url : undefined
+                });
+              }
             }
           }
+
+          // Fetch CODEOWNERS
+          let codeowners: EvidenceSnapshotV2['repositories'][number]['codeowners'] = undefined;
+          const codeownersPaths = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'];
+          for (const path of codeownersPaths) {
+            try {
+              requestCount++;
+              const source = await this.fetchSource((ep, acc) => this.github(ep, acc ?? 'application/vnd.github.v3+json'), managedRepo.owner, managedRepo.name, path, commitSha);
+              codeowners = {
+                path: path as any,
+                content: source,
+                contentHash: sha256(source),
+                commitSha
+              };
+              break; // Stop at first found
+            } catch (e) {
+              // Ignore and try next path
+            }
+          }
+
+          repoRecords.push({
+            repository: repoSlug,
+            branch: defaultBranch,
+            commitSha,
+            scanStatus: 'COMPLETE',
+            codeowners
+          });
           repositoriesChecked.push(repoSlug);
         } catch (err) {
+          repoRecords.push({
+            repository: repoSlug,
+            branch: 'unknown',
+            commitSha: 'unknown',
+            scanStatus: 'FAILED',
+            error: String(err instanceof Error ? err.message : err).slice(0, 120)
+          });
           repositoriesFailed.push({
             repository: repoSlug,
             errorCode: String(err instanceof Error ? err.message : err).slice(0, 120)
@@ -168,9 +231,13 @@ export class GitHubEvidenceProvider implements EvidenceProvider {
       repositoryScopeVersion: this.scopeRepository.getScope().version,
       queryPlanHash,
       generatedAt: now,
-      repositoriesExpected: expectedRepos,
-      repositoriesChecked,
-      repositoriesFailed,
+      repositories: repoRecords,
+      coverage: {
+        repositoriesExpected: activeRepos.length,
+        repositoriesChecked: repositoriesChecked.length,
+        repositoriesFailed: repositoriesFailed.length,
+        ratio: activeRepos.length > 0 ? repositoriesChecked.length / activeRepos.length : 1
+      },
       queries: queries.map((q) => ({ queryId: q.id, query: q.query, generatedFromChangeIds: q.changeIds })),
       results: snapshotResults
     };

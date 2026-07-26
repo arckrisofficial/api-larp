@@ -82,7 +82,7 @@ export class RiskService {
       }
 
       // Validate matchedChangeIds is a subset of linked change IDs
-      const validChangeIds = new Set(item.generatedFromChangeIds);
+      const validChangeIds = new Set(item.relatedChangeIds);
       const matchedChangeIds = modelAssessment.matchedChangeIds.filter((id) => validChangeIds.has(id));
 
       // Filter migration actions to ensure repository and filePath match evidence item (anti-hallucination)

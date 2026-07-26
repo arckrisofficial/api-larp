@@ -1,15 +1,45 @@
 {
-  "version": 2,
-  "updatedAt": "2026-07-25T21:18:55.324Z",
+  "version": 7,
+  "updatedAt": "2026-07-25T23:03:58.753Z",
   "repositories": [
+    {
+      "id": "4fca1d596391",
+      "owner": "arckrisofficial",
+      "name": "apiguard-react-consumer",
+      "branch": "main",
+      "lastKnownCommitSha": "441011a876f1f6822f961340b28c3a8a34e2fb93",
+      "status": "ACTIVE",
+      "addedAt": "2026-07-25T23:02:00.298Z",
+      "addedBy": "bootstrap"
+    },
+    {
+      "id": "f0e149565f5d",
+      "owner": "arckrisofficial",
+      "name": "apiguard-python-consumer",
+      "branch": "main",
+      "lastKnownCommitSha": "bbc0e019f13ef7f1e4479d61bd489b94682fd39e",
+      "status": "ACTIVE",
+      "addedAt": "2026-07-25T23:02:01.224Z",
+      "addedBy": "bootstrap"
+    },
+    {
+      "id": "df438d1cc273",
+      "owner": "arckrisofficial",
+      "name": "apiguard-go-consumer",
+      "branch": "main",
+      "lastKnownCommitSha": "4d46934ab3c9706195389eb9fa61f15098c1d6b5",
+      "status": "ACTIVE",
+      "addedAt": "2026-07-25T23:02:02.195Z",
+      "addedBy": "bootstrap"
+    },
     {
       "id": "6407e4525316",
       "owner": "arckrisofficial",
       "name": "api-larp",
       "branch": "main",
-      "lastKnownCommitSha": "d6533c4a5d3885318f6ff2cfbf4bebb7541ce2d6",
+      "lastKnownCommitSha": "99e2b9a8d9f5e8053f7dbc46d0da51de3cf55a65",
       "status": "ACTIVE",
-      "addedAt": "2026-07-25T20:10:54.974Z",
+      "addedAt": "2026-07-25T23:03:58.753Z",
       "addedBy": "e2e-tester"
     }
   ]
