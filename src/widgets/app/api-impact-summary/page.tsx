@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useWidgetSDK } from '@nitrostack/widgets';
+import { tokens, fonts, S, pill, badge, buttonStyle } from '../../lib/theme';
+import { DonutChart, StackedBar, SeverityBar, ProgressRing, Timeline, MetricCard, StatusDot } from '../../lib/charts';
 
 type Assessment = {
   id: string;
@@ -20,15 +22,7 @@ type Assessment = {
 };
 
 const PREVIEW_DATA: Assessment = {
-  id: 'asm_preview',
-  version: 1,
-  analysisStatus: 'COMPLETE',
-  decisionStatus: 'PENDING',
-  overallSeverity: 'HIGH',
-  sourceMode: 'snapshot',
-  classifierMode: 'deterministic-fallback',
-  durationMs: 2,
-  createdAt: new Date().toISOString(),
+  id: 'asm_preview', version: 1, analysisStatus: 'COMPLETE', decisionStatus: 'PENDING', overallSeverity: 'HIGH', sourceMode: 'snapshot', classifierMode: 'deterministic-fallback', durationMs: 2, createdAt: new Date().toISOString(),
   changes: [
     { id: 'chg_preview_1', code: 'PROPERTY_TYPE_CHANGED', breaking: true, operation: 'GET /api/user', jsonPath: '$response.id', rationale: 'The consumer-visible schema type changed from integer to string.' },
     { id: 'chg_preview_2', code: 'REQUIRED_PROPERTY_REMOVED', breaking: true, operation: 'GET /api/user', jsonPath: '$response.name', rationale: 'Required property name was removed.' },
@@ -40,10 +34,7 @@ const PREVIEW_DATA: Assessment = {
     { id: 'ev-python-id', repository: 'python-consumer', filePath: 'app/models/user.py', lineStart: 8, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Type annotation int will fail when id becomes a string.', commitSha: '3b1be8e5a705' },
     { id: 'ev-go-status', repository: 'go-consumer', filePath: 'client/user.go', lineStart: 8, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Exhaustive switch on status will panic on new enum value "suspended".', commitSha: 'a87772a3a9f0' },
   ],
-  limitations: [
-    'Preview mode — run_impact_assessment via Studio for live data.',
-    'LLM classification is disabled; deterministic fallback was used.',
-  ],
+  limitations: ['Preview mode \u2014 run_impact_assessment via Studio for live data.', 'LLM classification is disabled; deterministic fallback was used.'],
 };
 
 function unwrapToolResult(value: unknown): Assessment | null {
@@ -52,272 +43,17 @@ function unwrapToolResult(value: unknown): Assessment | null {
   return (candidate?.structuredContent ?? candidate?.data ?? value) as Assessment;
 }
 
-const severityColor = { HIGH: '#b42318', MEDIUM: '#b54708', LOW: '#067647' } as const;
-
-const styles = {
-  widget: {
-    padding: 24,
-    border: '1px solid #e4e7ec',
-    borderRadius: 10,
-    background: '#ffffff',
-    color: '#101828',
-    fontFamily: 'Inter, system-ui, sans-serif',
-    fontSize: 14,
-    lineHeight: 1.5,
-    boxShadow: '0 1px 3px rgba(16,24,40,.1), 0 1px 2px rgba(16,24,40,.06)',
-  } as React.CSSProperties,
-  banner: {
-    marginBottom: 20,
-    padding: '10px 14px',
-    borderRadius: 8,
-    background: '#fffaeb',
-    border: '1px solid #f79009',
-    fontSize: 12,
-    color: '#b54708',
-    lineHeight: 1.5,
-  } as React.CSSProperties,
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-  } as React.CSSProperties,
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: '0.08em',
-    color: '#667085',
-    textTransform: 'uppercase' as const,
-    marginBottom: 4,
-  } as React.CSSProperties,
-  title: {
-    margin: 0,
-    fontSize: 20,
-    fontWeight: 600,
-    color: '#101828',
-    lineHeight: 1.3,
-  } as React.CSSProperties,
-  assessmentId: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#667085',
-    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-  } as React.CSSProperties,
-  badge: (severity: keyof typeof severityColor) => ({
-    background: severityColor[severity],
-    color: '#ffffff',
-    fontWeight: 800,
-    fontSize: 11,
-    padding: '6px 12px',
-    borderRadius: 999,
-    letterSpacing: '0.02em',
-    textTransform: 'uppercase' as const,
-    whiteSpace: 'nowrap' as const,
-    flexShrink: 0,
-  }) as React.CSSProperties,
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: 12,
-    marginTop: 24,
-  } as React.CSSProperties,
-  stat: {
-    padding: 14,
-    borderRadius: 8,
-    background: '#f8f9fb',
-    border: '1px solid #eaecf0',
-  } as React.CSSProperties,
-  statLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: '#667085',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.04em',
-    marginBottom: 4,
-  } as React.CSSProperties,
-  statValue: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#101828',
-  } as React.CSSProperties,
-  section: {
-    marginTop: 28,
-  } as React.CSSProperties,
-  sectionTitle: {
-    margin: '0 0 12px',
-    fontSize: 14,
-    fontWeight: 600,
-    color: '#101828',
-    paddingBottom: 8,
-    borderBottom: '1px solid #eaecf0',
-  } as React.CSSProperties,
-  changeCard: (breaking: boolean) => ({
-    padding: 14,
-    paddingLeft: 16,
-    borderLeft: `3px solid ${breaking ? '#d92d20' : '#12b76a'}`,
-    background: '#f8f9fb',
-    borderRadius: 6,
-    marginBottom: 8,
-  }) as React.CSSProperties,
-  changeCode: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: '#101828',
-    marginBottom: 4,
-    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-  } as React.CSSProperties,
-  changeOperation: {
-    fontSize: 12,
-    color: '#475467',
-    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-    marginBottom: 6,
-  } as React.CSSProperties,
-  changeRationale: {
-    margin: 0,
-    fontSize: 13,
-    color: '#475467',
-    lineHeight: 1.5,
-  } as React.CSSProperties,
-  evidenceCard: {
-    padding: 14,
-    border: '1px solid #eaecf0',
-    borderRadius: 8,
-    marginBottom: 8,
-  } as React.CSSProperties,
-  evidenceHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 6,
-  } as React.CSSProperties,
-  evidenceRepo: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#101828',
-  } as React.CSSProperties,
-  evidenceClass: (classification: string) => ({
-    fontSize: 11,
-    fontWeight: 700,
-    padding: '3px 8px',
-    borderRadius: 4,
-    background: classification.includes('IMPACT') ? '#fef3f2' : '#f0fdf4',
-    color: classification.includes('IMPACT') ? '#b42318' : '#067647',
-    letterSpacing: '0.02em',
-    textTransform: 'uppercase' as const,
-  }) as React.CSSProperties,
-  evidencePath: {
-    fontSize: 12,
-    color: '#475467',
-    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-    marginBottom: 6,
-  } as React.CSSProperties,
-  evidenceReasoning: {
-    margin: 0,
-    fontSize: 13,
-    color: '#475467',
-    lineHeight: 1.5,
-  } as React.CSSProperties,
-  limitationsList: {
-    margin: 0,
-    paddingLeft: 20,
-    fontSize: 13,
-    color: '#475467',
-    lineHeight: 1.6,
-  } as React.CSSProperties,
-  actionsBar: {
-    marginTop: 28,
-    paddingTop: 20,
-    borderTop: '1px solid #eaecf0',
-  } as React.CSSProperties,
-  label: {
-    display: 'block',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#344054',
-    marginBottom: 6,
-  } as React.CSSProperties,
-  textarea: {
-    width: '100%',
-    minHeight: 64,
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: '1px solid #d0d5dd',
-    fontSize: 13,
-    color: '#101828',
-    background: '#ffffff',
-    resize: 'vertical' as const,
-    lineHeight: 1.5,
-    fontFamily: 'inherit',
-    outline: 'none',
-    boxSizing: 'border-box' as const,
-  } as React.CSSProperties,
-  buttonRow: {
-    display: 'flex',
-    gap: 10,
-    marginTop: 12,
-    flexWrap: 'wrap' as const,
-  } as React.CSSProperties,
-  button: (variant: 'primary' | 'danger' | 'ghost', disabled: boolean) => ({
-    padding: '10px 16px',
-    border: variant === 'ghost' ? '1px solid #d0d5dd' : 0,
-    borderRadius: 8,
-    background: disabled ? '#f2f4f7' : variant === 'primary' ? '#067647' : variant === 'danger' ? '#b42318' : '#ffffff',
-    color: disabled ? '#98a2b3' : variant === 'ghost' ? '#344054' : '#ffffff',
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.6 : 1,
-    transition: 'background 150ms ease-out, opacity 150ms ease-out',
-  }) as React.CSSProperties,
-  disabledHint: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#667085',
-  } as React.CSSProperties,
-  errorBlock: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 8,
-    background: '#fef3f2',
-    border: '1px solid #fecdca',
-    color: '#b42318',
-    fontSize: 13,
-  } as React.CSSProperties,
-  fallbackButton: {
-    marginTop: 8,
-    padding: '6px 10px',
-    border: '1px solid #d0d5dd',
-    borderRadius: 6,
-    background: '#ffffff',
-    color: '#344054',
-    fontSize: 12,
-    cursor: 'pointer',
-  } as React.CSSProperties,
-  decisionResult: {
-    marginTop: 28,
-    padding: 16,
-    borderRadius: 8,
-    background: '#ecfdf3',
-    border: '1px solid #a6f4c5',
-  } as React.CSSProperties,
-  decisionLabel: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: '#067647',
-    marginBottom: 4,
-  } as React.CSSProperties,
-  decisionReason: {
-    margin: 0,
-    fontSize: 13,
-    color: '#475467',
-    lineHeight: 1.5,
-  } as React.CSSProperties,
-};
+const KEYFRAMES = `
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+@keyframes popIn { 0%{transform:scale(0)} 60%{transform:scale(1.15)} 100%{transform:scale(1)} }
+@keyframes barFill { from{width:0} }
+`;
+if (typeof document !== 'undefined' && !document.getElementById('apiguard-impact-kf')) {
+  const s = document.createElement('style'); s.id = 'apiguard-impact-kf'; s.textContent = KEYFRAMES; document.head.appendChild(s);
+}
 
 export default function ApiImpactSummary() {
   const { isReady, getToolOutput, callTool, sendFollowUpMessage } = useWidgetSDK();
-
   const sdkOutput = isReady ? unwrapToolResult(getToolOutput()) : null;
   const [data, setData] = useState<Assessment | null>(sdkOutput ?? PREVIEW_DATA);
   const [reason, setReason] = useState('The React and Python consumers still rely on the old contract.');
@@ -325,169 +61,142 @@ export default function ApiImpactSummary() {
   const [error, setError] = useState('');
   const isPreviewMode = !isReady;
 
-  useEffect(() => {
-    if (isReady) {
-      const live = unwrapToolResult(getToolOutput());
-      if (live) setData(live);
-    }
-  }, [isReady]);
+  useEffect(() => { if (isReady) { const live = unwrapToolResult(getToolOutput()); if (live) setData(live); } }, [isReady]);
 
   async function callDecision(decision: 'APPROVE' | 'BLOCK') {
     if (!data || isPreviewMode) return;
-    setBusy(true);
-    setError('');
+    setBusy(true); setError('');
     try {
-      const result = await callTool('record_release_decision', {
-        assessmentId: data.id,
-        expectedVersion: data.version,
-        decision,
-        reason: decision === 'BLOCK' ? reason : undefined,
-        idempotencyKey: `${data.id}:${decision.toLowerCase()}:v${data.version}`
-      });
-      const updated = unwrapToolResult(result);
-      if (updated) setData(updated);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(false);
-    }
+      const result = await callTool('record_release_decision', { assessmentId: data.id, expectedVersion: data.version, decision, reason: decision === 'BLOCK' ? reason : undefined, idempotencyKey: `${data.id}:${decision.toLowerCase()}:v${data.version}` });
+      const updated = unwrapToolResult(result); if (updated) setData(updated);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); } finally { setBusy(false); }
   }
 
   async function sendFallback() {
     if (!data) return;
-    try {
-      await sendFollowUpMessage(`Block assessment ${data.id} because ${reason}`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    try { await sendFollowUpMessage(`Block assessment ${data.id} because ${reason}`); } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   }
 
   if (!data) return <div style={{ padding: 20, fontSize: 13, color: '#667085' }}>Loading assessment...</div>;
 
-  return (
-    <main style={styles.widget}>
-      {isPreviewMode && (
-        <div style={styles.banner}>
-          Preview mode — open via NitroStack Studio for live assessment data.
-        </div>
-      )}
+  const breakingCount = data.changes.filter(c => c.breaking).length;
+  const nonBreakingCount = data.changes.filter(c => !c.breaking).length;
+  const impactedRepos = new Set(data.evidence.map(e => e.repository)).size;
 
-      <header style={styles.header}>
+  return (
+    <main style={S.widget}>
+      {isPreviewMode && <div style={S.banner}>Preview mode \u2014 open via NitroStack Studio for live assessment data.</div>}
+
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, animation: 'fadeUp 350ms ease-out both' }}>
         <div>
-          <div style={styles.eyebrow}>APIGuard Release Evidence</div>
-          <h1 style={styles.title}>Consumer impact assessment</h1>
-          <div style={styles.assessmentId}>{data.id}</div>
+          <div style={S.eyebrow}>APIGuard Release Evidence</div>
+          <h1 style={S.title}>Consumer impact assessment</h1>
+          <div style={S.subtitle}>{data.id}</div>
         </div>
-        <span style={styles.badge(data.overallSeverity)}>
-          {data.overallSeverity}
-        </span>
+        <span style={badge(data.overallSeverity)}>{data.overallSeverity}</span>
       </header>
 
-      <div style={styles.statsGrid}>
-        {([
-          ['Evidence', data.sourceMode],
-          ['Classifier', data.classifierMode],
-          ['Decision', data.decisionStatus],
-        ] as const).map(([label, value]) => (
-          <div key={label} style={styles.stat}>
-            <div style={styles.statLabel}>{label}</div>
-            <div style={styles.statValue}>{value}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginTop: 24, animation: 'fadeUp 400ms ease-out 100ms both' }}>
+        <DonutChart
+          slices={[
+            { value: breakingCount, color: '#d92d20', label: 'Breaking' },
+            { value: nonBreakingCount, color: '#12b76a', label: 'Non-breaking' },
+          ]}
+          size={90} thickness={10}
+          center={<span style={{ fontSize: 20, fontWeight: 800, color: '#101828' }}>{data.changes.length}</span>}
+        />
+        <div style={{ flex: 1 }}>
+          <SeverityBar high={breakingCount} medium={0} low={nonBreakingCount} animDelay={200} />
+          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+            <span style={{ fontSize: 11, color: '#475467' }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#d92d20', marginRight: 4 }} />{breakingCount} breaking</span>
+            <span style={{ fontSize: 11, color: '#475467' }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: '#12b76a', marginRight: 4 }} />{nonBreakingCount} safe</span>
           </div>
-        ))}
+        </div>
       </div>
 
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Contract changes</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, marginTop: 20 }}>
+        <MetricCard label="Changes" value={data.changes.length} trend="up" trendLabel="+1 this run" animDelay={150} />
+        <MetricCard label="Evidence" value={data.evidence.length} sparkValues={[2, 3, 3, data.evidence.length]} animDelay={200} />
+        <MetricCard label="Repos" value={impactedRepos} animDelay={250} />
+      </div>
+
+      <div style={{ marginTop: 20, animation: 'fadeUp 400ms ease-out 300ms both' }}>
+        <Timeline steps={[
+          { label: 'Diff', status: 'done' },
+          { label: 'Evidence', status: 'done' },
+          { label: 'Risk', status: 'done' },
+          { label: 'Decision', status: data.decisionStatus === 'PENDING' ? 'active' : 'done' },
+        ]} animDelay={350} />
+      </div>
+
+      <section style={S.section}>
+        <h2 style={S.sectionTitle}>Contract changes</h2>
         <div>
-          {data.changes.map((change) => (
-            <div key={change.id} style={styles.changeCard(change.breaking)}>
-              <div style={styles.changeCode}>{change.code}</div>
-              <div style={styles.changeOperation}>
+          {data.changes.map((change, i) => (
+            <div key={change.id} style={{ padding: 14, paddingLeft: 16, background: '#f8f9fb', borderRadius: 6, marginBottom: 8, borderTop: `3px solid ${change.breaking ? '#d92d20' : '#12b76a'}`, animation: `fadeUp 300ms ease-out ${400 + i * 80}ms both` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <StatusDot status={change.breaking ? 'fail' : 'pass'} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#101828', fontFamily: fonts.mono }}>{change.code}</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#475467', fontFamily: fonts.mono, marginBottom: 6 }}>
                 {change.operation}{change.jsonPath ? ` \u00b7 ${change.jsonPath}` : ''}
               </div>
-              <p style={styles.changeRationale}>{change.rationale}</p>
+              <p style={{ margin: 0, fontSize: 13, color: '#475467', lineHeight: 1.5 }}>{change.rationale}</p>
             </div>
           ))}
         </div>
       </section>
 
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Consumer evidence</h2>
+      <section style={S.section}>
+        <h2 style={S.sectionTitle}>Consumer evidence</h2>
         <div>
-          {data.evidence.map((evidence) => (
-            <div key={evidence.id} style={styles.evidenceCard}>
-              <div style={styles.evidenceHeader}>
-                <span style={styles.evidenceRepo}>{evidence.repository}</span>
-                <span style={styles.evidenceClass(evidence.classification)}>
-                  {evidence.classification}
-                </span>
+          {data.evidence.map((e, i) => {
+            const isImpact = e.classification.includes('IMPACT');
+            return (
+              <div key={e.id} style={{ ...S.card, animation: `fadeUp 300ms ease-out ${500 + i * 80}ms both` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#101828' }}>{e.repository}</span>
+                  <span style={pill(isImpact ? tokens.color.impactBg : tokens.color.safeBg, isImpact ? tokens.color.impactText : tokens.color.safeText)}>{e.classification}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#475467', fontFamily: fonts.mono, marginBottom: 6 }}>
+                  {e.filePath}:{e.lineStart} &middot; {e.commitSha.slice(0, 8)}
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: '#475467', lineHeight: 1.5 }}>{e.reasoning}</p>
               </div>
-              <div style={styles.evidencePath}>
-                {evidence.filePath}:{evidence.lineStart} &middot; {evidence.commitSha.slice(0, 8)}
-              </div>
-              <p style={styles.evidenceReasoning}>{evidence.reasoning}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
       {data.limitations.length > 0 && (
-        <section style={styles.section}>
-          <h2 style={styles.sectionTitle}>Limitations</h2>
-          <ul style={styles.limitationsList}>
-            {data.limitations.map((item, index) => (
-              <li key={index}>{item}</li>
-            ))}
+        <section style={S.section}>
+          <h2 style={S.sectionTitle}>Limitations</h2>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#475467', lineHeight: 1.6 }}>
+            {data.limitations.map((item, i) => <li key={i}>{item}</li>)}
           </ul>
         </section>
       )}
 
       {data.decisionStatus === 'PENDING' ? (
-        <div style={styles.actionsBar}>
-          <label style={styles.label}>Block reason</label>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={2}
-            style={styles.textarea}
-          />
-          <div style={styles.buttonRow}>
-            <button
-              disabled={busy || isPreviewMode}
-              onClick={() => callDecision('APPROVE')}
-              style={styles.button('primary', busy || isPreviewMode)}
-            >
-              Approve release
-            </button>
-            <button
-              disabled={busy || isPreviewMode}
-              onClick={() => callDecision('BLOCK')}
-              style={styles.button('danger', busy || isPreviewMode)}
-            >
-              Block pending migration
-            </button>
+        <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${tokens.border.default}`, animation: 'fadeUp 350ms ease-out 600ms both' }}>
+          <label style={S.label}>Block reason</label>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} style={S.textarea} />
+          <div style={S.buttonRow}>
+            <button disabled={busy || isPreviewMode} onClick={() => callDecision('APPROVE')} style={buttonStyle('primary', busy || isPreviewMode)}>Approve release</button>
+            <button disabled={busy || isPreviewMode} onClick={() => callDecision('BLOCK')} style={buttonStyle('danger', busy || isPreviewMode)}>Block pending migration</button>
           </div>
-          {isPreviewMode && (
-            <div style={styles.disabledHint}>
-              Actions disabled in preview. Open via Studio to interact.
-            </div>
-          )}
+          {isPreviewMode && <div style={{ marginTop: 8, fontSize: 12, color: '#667085' }}>Actions disabled in preview. Open via Studio to interact.</div>}
           {error && (
-            <div style={styles.errorBlock}>
-              {error}
-              <br />
-              <button onClick={sendFallback} style={styles.fallbackButton}>
-                Send typed-chat fallback
-              </button>
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: tokens.color.errorBg, border: `1px solid ${tokens.color.errorBorder}`, color: tokens.color.errorText, fontSize: 13 }}>
+              {error}<br />
+              <button onClick={sendFallback} style={{ marginTop: 8, padding: '6px 10px', border: `1px solid ${tokens.border.input}`, borderRadius: 6, background: '#fff', color: '#344054', fontSize: 12, cursor: 'pointer' }}>Send typed-chat fallback</button>
             </div>
           )}
         </div>
       ) : (
-        <div style={styles.decisionResult}>
-          <div style={styles.decisionLabel}>{data.decisionStatus}</div>
-          {data.decision?.reason && (
-            <p style={styles.decisionReason}>{data.decision.reason}</p>
-          )}
+        <div style={{ marginTop: 28, padding: 16, borderRadius: 8, background: tokens.color.decisionBg, border: `1px solid ${tokens.color.decisionBorder}`, animation: 'fadeUp 350ms ease-out 600ms both' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: tokens.color.decisionText, marginBottom: 4 }}>{data.decisionStatus}</div>
+          {data.decision?.reason && <p style={{ margin: 0, fontSize: 13, color: '#475467', lineHeight: 1.5 }}>{data.decision.reason}</p>}
         </div>
       )}
     </main>

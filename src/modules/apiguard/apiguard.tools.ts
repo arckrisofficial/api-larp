@@ -114,6 +114,7 @@ export class ApiGuardTools {
     invocation: { invoking: 'Comparing API contracts…', invoked: 'API contract comparison complete' },
     examples: { request: { scenarioId: 'risky' }, response: { scenarioId: 'risky', summary: { totalChanges: 4, breakingChanges: 3 } } }
   })
+  @Widget('contract-diff-summary')
   @CatchError()
   async diffApiSpec(input: { scenarioId?: string }, ctx: ExecutionContext) {
     const { scenarioId } = ScenarioInput.parse(input ?? {});
@@ -214,6 +215,7 @@ export class ApiGuardTools {
     invocation: { invoking: 'Assessing consumer impact…', invoked: 'Consumer impact assessed' },
     examples: { request: { scenarioId: 'risky' }, response: { overallSeverity: 'HIGH', classifierMode: 'deterministic-fallback' } }
   })
+  @Widget('consumer-risk-assessment')
   @CatchError()
   async assessRisk(input: { scenarioId?: string; snapshotId?: string }, ctx: ExecutionContext) {
     const scenarioId = input.scenarioId || 'risky';
@@ -260,6 +262,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Resolving owners...', invoked: 'Owners resolved' }
   })
+  @Widget('ownership-resolution')
   @CatchError()
   async resolveConsumerOwners(input: { assessmentId: string }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
@@ -291,6 +294,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Evaluating policy...', invoked: 'Policy evaluated' }
   })
+  @Widget('policy-evaluation')
   @CatchError()
   async evaluateReleasePolicy(input: { assessmentId: string; profile?: 'STRICT' | 'BALANCED' }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
@@ -456,6 +460,7 @@ export class ApiGuardTools {
     }),
     invocation: { invoking: 'Verifying readiness...', invoked: 'Readiness verified' }
   })
+  @Widget('migration-readiness')
   @CatchError()
   async verifyMigrationReadiness(input: { bundleId: string }, ctx: ExecutionContext) {
     const bundle = await this.artifactStore.get<any>('evidence-packages', input.bundleId);
