@@ -18,6 +18,7 @@ export class ApiGuardConfig {
   readonly demoScenario = process.env.DEMO_SCENARIO ?? 'risky';
   readonly useLiveGitHub = bool('USE_LIVE_GITHUB', false);
   readonly githubToken = process.env.GITHUB_TOKEN ?? '';
+  readonly githubApiBaseUrl = (process.env.GITHUB_API_BASE_URL ?? 'https://api.github.com').replace(/\/$/, '');
   readonly githubOwner = process.env.DEMO_GITHUB_OWNER ?? '';
   readonly githubRepositories = (process.env.DEMO_GITHUB_REPOSITORIES ?? '')
     .split(',')
@@ -49,6 +50,12 @@ export class ApiGuardConfig {
   readonly llmTimeoutMs = integer('LLM_TIMEOUT_MS', 7000);
   readonly maxEvidenceItems = integer('LLM_MAX_EVIDENCE_ITEMS', 8);
   readonly maxSnippetChars = integer('LLM_MAX_SNIPPET_CHARS', 1200);
+  readonly githubWriteEnabled = bool('APIGUARD_GITHUB_WRITE_ENABLED', false);
+  readonly writableRepositories = (process.env.APIGUARD_WRITABLE_REPOSITORIES ?? '')
+    .split(',')
+    .map((value: string) => value.trim().toLowerCase())
+    .filter(Boolean);
+  readonly fixBranchPrefix = (process.env.FIX_BRANCH_PREFIX ?? 'apiguard').replace(/[^a-z0-9._-]/gi, '-') || 'apiguard';
   readonly actorId = process.env.DEMO_ACTOR_ID ?? 'judge-demo';
   readonly actorDisplayName = process.env.DEMO_ACTOR_DISPLAY_NAME ?? 'Hackathon Judge';
 }

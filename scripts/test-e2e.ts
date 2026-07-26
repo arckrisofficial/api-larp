@@ -35,7 +35,7 @@ async function run() {
   const ownershipService = new OwnershipService();
   const policyService = new PolicyService(specRepo);
   const artifactStore = new LocalArtifactStore();
-  const prPublisherService = new PrPublisherService();
+  const prPublisherService = new PrPublisherService(config);
   const tools = new ApiGuardTools(
     config,
     specRepo,
@@ -107,13 +107,17 @@ async function run() {
   }, ctx);
   console.log(`Decision State: ${decisionResult.decisionStatus}`);
 
-  console.log('\n--- 10. Publish Assessment to PR ---');
-  const publishResult = await tools.publishAssessmentToPr({
+  console.log('\n--- 10. GitHub write guard ---');
+  const publishResult: any = await tools.publishAssessmentToPr({
     assessmentId: assessResult.id,
     prUrl: 'https://github.com/arckrisofficial/api-larp/pull/42',
-    idempotencyKey: `pr42_${assessResult.id}`
+    idempotencyKey: `pr42_${assessResult.id}`,
+    confirmed: true
   }, ctx);
-  console.log(`Published to PR: ${publishResult.prUrl} (ID: ${publishResult.publishedId})`);
+  if (!('error' in publishResult) || !String(publishResult.message).includes('GitHub writes are disabled')) {
+    throw new Error('Offline E2E expected the GitHub write guard to reject publication.');
+  }
+  console.log('GitHub writes remained disabled during offline E2E.');
 
   console.log('\nE2E TEST PASSED!');
 }

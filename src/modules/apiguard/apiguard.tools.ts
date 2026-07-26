@@ -478,19 +478,64 @@ export class ApiGuardTools {
 
   @Tool({
     name: 'publish_assessment_to_pr',
-    description: 'Publish the assessment summary to a GitHub Pull Request using an idempotency key.',
+    description: 'Publish the assessment summary as a real comment on an existing allow-listed GitHub pull request.',
     inputSchema: z.object({
       assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to publish.'),
       prUrl: z.string().url().describe('The URL of the GitHub Pull Request to publish to.'),
-      idempotencyKey: z.string().describe('Idempotency key to prevent duplicate comments or update existing ones.')
+      idempotencyKey: z.string().min(8).max(160).describe('Idempotency key that prevents duplicate comments.'),
+      confirmed: z.literal(true).describe('Must be true to authorize this GitHub write.')
     }),
     invocation: { invoking: 'Publishing to PR...', invoked: 'Published to PR' }
   })
   @CatchError()
-  async publishAssessmentToPr(input: { assessmentId: string; prUrl: string; idempotencyKey: string }, ctx: ExecutionContext) {
+  async publishAssessmentToPr(input: { assessmentId: string; prUrl: string; idempotencyKey: string; confirmed: true }, ctx: ExecutionContext) {
     const assessment = this.assessmentService.get(input.assessmentId);
     if (!assessment) throw new Error(`Assessment ${input.assessmentId} not found`);
 
     return this.prPublisherService.publish(assessment, input.prUrl, input.idempotencyKey);
+  }
+
+  @Tool({
+    name: 'create_migration_pull_requests',
+    description: 'Create one guarded draft GitHub migration pull request from reviewable complete-file changes against an assessment-pinned commit.',
+    inputSchema: z.object({
+      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/),
+      repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+      files: z.array(z.object({
+        path: z.string().min(1).max(500),
+        proposedContent: z.string().min(1).max(200000),
+        expectedSourceHash: z.string().regex(/^[a-f0-9]{64}$/i)
+      })).min(1).max(10),
+      title: z.string().min(3).max(200).optional(),
+      idempotencyKey: z.string().min(8).max(160),
+      confirmed: z.literal(true)
+    }),
+    invocation: { invoking: 'Creating guarded draft migration pull request…', invoked: 'Draft migration pull request created' }
+  })
+  @CatchError()
+  async createMigrationPullRequests(input: {
+    assessmentId: string;
+    repository: string;
+    files: Array<{ path: string; proposedContent: string; expectedSourceHash: string }>;
+    title?: string;
+    idempotencyKey: string;
+    confirmed: true;
+  }, ctx: ExecutionContext) {
+    const assessment = this.assessmentService.get(input.assessmentId);
+    const result = await this.prPublisherService.createDraftPullRequest({
+      assessment,
+      repository: input.repository,
+      files: input.files,
+      title: input.title,
+      idempotencyKey: input.idempotencyKey
+    });
+    ctx.logger.info('Draft migration pull request created', {
+      assessmentId: input.assessmentId,
+      repository: result.repository,
+      pullRequestNumber: result.pullRequestNumber,
+      draft: result.draft,
+      idempotentReplay: result.idempotentReplay
+    });
+    return result;
   }
 }
