@@ -13,8 +13,8 @@ function integer(name: string, fallback: number): number {
 
 @Injectable()
 export class ApiGuardConfig {
-  readonly fixturesDir = process.env.APIGUARD_FIXTURES_DIR
-    ?? (process.env.NODE_ENV === 'production' ? 'dist/fixtures' : 'fixtures');
+  readonly fixturesDir = process.env.APIGUARD_FIXTURES_DIR?.trim()
+    || (process.env.NODE_ENV === 'production' ? 'dist/fixtures' : 'fixtures');
   readonly demoScenario = process.env.DEMO_SCENARIO ?? 'risky';
   readonly useLiveGitHub = bool('USE_LIVE_GITHUB', false);
   readonly githubToken = process.env.GITHUB_TOKEN ?? '';
