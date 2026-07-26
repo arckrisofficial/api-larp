@@ -59,7 +59,7 @@ export default function PolicyEvaluation() {
 
   return (
     <main style={S.widget}>
-      {isPreview && <div style={S.banner}>Preview mode \u2014 open via NitroStack Studio for live data.</div>}
+      {isPreview && <div style={S.banner}>Open via NitroStack Studio for live data.</div>}
 
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, animation: 'fadeUp 350ms ease-out both' }}>
         <div>
