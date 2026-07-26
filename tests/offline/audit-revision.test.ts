@@ -4,6 +4,7 @@ import { ApiGuardConfig } from '../../src/modules/apiguard/config.service.js';
 import { ContractService } from '../../src/modules/apiguard/contract.service.js';
 import { RiskService } from '../../src/modules/apiguard/risk.service.js';
 import { SnapshotEvidenceProvider } from '../../src/modules/apiguard/snapshot-evidence.provider.js';
+import { evaluateMigrationReadiness } from '../../src/domain/migration-readiness.js';
 
 after(() => {
   setTimeout(() => process.exit(0), 10);
@@ -71,4 +72,22 @@ test('SnapshotEvidenceProvider: targeted refresh includes only requested consume
   assert.ok(pair.snapshot.results.length > 0);
   assert.ok(pair.snapshot.results.every((result) => result.repository === 'arckrisofficial/apiguard-go-consumer'));
   assert.ok(pair.result.items.every((item) => item.repository === 'arckrisofficial/apiguard-go-consumer'));
+});
+
+test('migration readiness treats a blocked release as ready for remediation PRs', () => {
+  const assessment: any = {
+    decisionStatus: 'BLOCKED_PENDING_MIGRATION',
+    coverage: { repositoriesExpected: 1, repositoriesChecked: 1, repositoriesFailed: 0, ratio: 1 },
+    policyEvaluations: [{ verdict: 'BLOCK' }],
+    evidence: [{ id: 'ev_go', classification: 'CONFIRMED_IMPACT' }],
+    ownershipResolution: {
+      assignments: [{ evidenceId: 'ev_go', status: 'RESOLVED', owners: ['@go-team'] }]
+    }
+  };
+
+  const readiness = evaluateMigrationReadiness(assessment);
+  assert.equal(readiness.readyForMigration, true);
+  assert.equal(readiness.releaseBlockedByPolicy, true);
+  assert.equal(readiness.confirmedOrLikelyImpacts, 1);
+  assert.deepEqual(readiness.missingOwnerEvidenceIds, []);
 });

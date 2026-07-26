@@ -1,5 +1,6 @@
 import { ExecutionContext, Injectable, ToolDecorator as Tool, Widget, z } from '@nitrostack/core';
 import { sha256 } from '../../domain/hash.js';
+import { evaluateMigrationReadiness } from '../../domain/migration-readiness.js';
 import { ApiGuardConfig } from './config.service.js';
 import { AssessmentService } from './assessment.service.js';
 import { ContractService } from './contract.service.js';
@@ -457,18 +458,9 @@ export class ApiGuardTools {
     const bundle = await this.artifactStore.get<any>('evidence-packages', input.bundleId);
     if (!bundle) throw new Error(`Evidence package ${input.bundleId} not found.`);
 
-    const assessment = bundle.assessment;
-    
-    const policyPass = assessment.policyEvaluations?.length > 0 && assessment.policyEvaluations.every((p: any) => p.verdict !== 'BLOCK');
-    const hasAssignments = assessment.ownershipResolution?.assignments?.length > 0;
-    
-    const isReady = policyPass && hasAssignments;
-    
     return {
       bundleId: input.bundleId,
-      readyForMigration: isReady,
-      reason: isReady ? 'Policy passes and owners are assigned' : 'Policy blocks or missing owners',
-      recommendedNextSteps: isReady ? ['Generate migration PRs for assigned owners'] : ['Review blocking policies or resolve unowned code']
+      ...evaluateMigrationReadiness(bundle.assessment)
     };
   }
 
