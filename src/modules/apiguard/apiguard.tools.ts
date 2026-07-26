@@ -248,7 +248,7 @@ export class ApiGuardTools {
     name: 'resolve_consumer_owners',
     description: 'Find CODEOWNERS for all identified evidence using the original EvidenceSnapshotV2.',
     inputSchema: z.object({
-      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to resolve owners for.')
+      assessmentId: z.string().regex(/^asm_[a-z0-9-]+$/).describe('The Assessment ID to resolve owners for.')
     }),
     invocation: { invoking: 'Resolving owners...', invoked: 'Owners resolved' }
   })
@@ -279,7 +279,7 @@ export class ApiGuardTools {
     name: 'evaluate_release_policy',
     description: 'Evaluate a semantic assessment against a deterministic policy profile.',
     inputSchema: z.object({
-      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to evaluate.'),
+      assessmentId: z.string().regex(/^asm_[a-z0-9-]+$/).describe('The Assessment ID to evaluate.'),
       profile: z.enum(['STRICT', 'BALANCED']).default('STRICT').describe('Policy profile to enforce.')
     }),
     invocation: { invoking: 'Evaluating policy...', invoked: 'Policy evaluated' }
@@ -411,7 +411,7 @@ export class ApiGuardTools {
     name: 'export_release_evidence_package',
     description: 'Export an immutable, standalone JSON evidence bundle containing the snapshot, semantic analysis, ownership and policy decisions.',
     inputSchema: z.object({
-      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to export.')
+      assessmentId: z.string().regex(/^asm_[a-z0-9-]+$/).describe('The Assessment ID to export.')
     }),
     invocation: { invoking: 'Exporting evidence bundle...', invoked: 'Evidence bundle exported' }
   })
@@ -475,7 +475,7 @@ export class ApiGuardTools {
     name: 'publish_assessment_to_pr',
     description: 'Publish the assessment summary as a real comment on an existing allow-listed GitHub pull request.',
     inputSchema: z.object({
-      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/).describe('The Assessment ID to publish.'),
+      assessmentId: z.string().regex(/^asm_[a-z0-9-]+$/).describe('The Assessment ID to publish.'),
       prUrl: z.string().url().describe('The URL of the GitHub Pull Request to publish to.'),
       idempotencyKey: z.string().min(8).max(160).describe('Idempotency key that prevents duplicate comments.'),
       confirmed: z.literal(true).describe('Must be true to authorize this GitHub write.')
@@ -494,7 +494,7 @@ export class ApiGuardTools {
     name: 'create_migration_pull_requests',
     description: 'Create one guarded draft GitHub migration pull request from reviewable complete-file changes against an assessment-pinned commit.',
     inputSchema: z.object({
-      assessmentId: z.string().regex(/^asm_[a-z0-9]+$/),
+      assessmentId: z.string().regex(/^asm_[a-z0-9-]+$/),
       repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
       files: z.array(z.object({
         path: z.string().min(1).max(500),

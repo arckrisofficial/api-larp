@@ -47,7 +47,7 @@ export class ApiGuardConfig {
   readonly anthropicModel = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
   readonly geminiKey = process.env.GEMINI_API_KEY ?? '';
   readonly geminiModel = process.env.GEMINI_MODEL ?? 'gemini-3.6-flash';
-  readonly llmTimeoutMs = integer('LLM_TIMEOUT_MS', 7000);
+  readonly llmTimeoutMs = integer('LLM_TIMEOUT_MS', 30000);
   readonly maxEvidenceItems = integer('LLM_MAX_EVIDENCE_ITEMS', 8);
   readonly maxSnippetChars = integer('LLM_MAX_SNIPPET_CHARS', 1200);
   readonly githubWriteEnabled = bool('APIGUARD_GITHUB_WRITE_ENABLED', false);
