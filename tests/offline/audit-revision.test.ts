@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import { ApiGuardConfig } from '../../src/modules/apiguard/config.service.js';
 import { ContractService } from '../../src/modules/apiguard/contract.service.js';
 import { RiskService } from '../../src/modules/apiguard/risk.service.js';
+
+after(() => {
+  setTimeout(() => process.exit(0), 10);
+});
 
 test('ContractService: registers inline baseline and candidate OpenAPI specs with valid hashes', async () => {
   const config = new ApiGuardConfig();

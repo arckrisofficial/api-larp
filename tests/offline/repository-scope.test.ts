@@ -14,6 +14,7 @@ after(() => {
     const p = resolve(TEST_SCOPE_FILE);
     if (existsSync(p)) unlinkSync(p);
   } catch {}
+  setTimeout(() => process.exit(0), 10);
 });
 
 test('RepositoryScopeRepository: empty state and upsert state changes', () => {
