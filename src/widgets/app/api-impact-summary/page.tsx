@@ -36,13 +36,12 @@ const PREVIEW_DATA: Assessment = {
     { id: 'chg_preview_4', code: 'OPTIONAL_PROPERTY_ADDED', breaking: false, operation: 'GET /api/user', jsonPath: '$response.fullName', rationale: 'Optional property added — backward compatible.' },
   ],
   evidence: [
-    { id: 'ev-react-name', repository: 'react-consumer', filePath: 'src/api/userProfile.ts', lineStart: 4, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Production consumer reads the removed response.name field.', commitSha: 'b71d00401b3a' },
-    { id: 'ev-python-id', repository: 'python-consumer', filePath: 'app/models/user.py', lineStart: 8, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Type annotation int will fail when id becomes a string.', commitSha: '3b1be8e5a705' },
-    { id: 'ev-go-status', repository: 'go-consumer', filePath: 'client/user.go', lineStart: 8, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Exhaustive switch will panic on new enum value "suspended".', commitSha: 'a87772a3a9f0' },
+    { id: 'ev-react-name', repository: 'arckrisofficial/apiguard-react-consumer', filePath: 'src/consumer.js', lineStart: 1, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Production consumer reads the removed response.name field.', commitSha: 'a704e5aecb2f' },
+    { id: 'ev-python-id', repository: 'arckrisofficial/apiguard-python-consumer', filePath: 'src/consumer.py', lineStart: 2, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Type annotation int will fail when id becomes a string.', commitSha: '7c67a54f2a82' },
+    { id: 'ev-go-status', repository: 'arckrisofficial/apiguard-go-consumer', filePath: 'src/consumer.go', lineStart: 1, classification: 'CONFIRMED_IMPACT', confidence: 'MEDIUM', reasoning: 'Exhaustive switch will panic on new enum value "suspended".', commitSha: '1cb53e40d43e' },
   ],
   limitations: [
     'Preview mode — run_impact_assessment via Studio for live data.',
-    'LLM classification disabled; deterministic fallback used.',
   ],
 };
 
@@ -429,7 +428,7 @@ export default function ApiImpactSummary() {
 
   const sdkOutput = isReady ? unwrapToolResult(getToolOutput()) : null;
   const [data, setData] = useState<Assessment | null>(sdkOutput ?? PREVIEW_DATA);
-  const [reason, setReason] = useState('The React and Python consumers still rely on the old contract.');
+  const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const isPreviewMode = !isReady;
