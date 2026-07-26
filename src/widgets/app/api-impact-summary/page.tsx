@@ -85,8 +85,6 @@ export default function ApiImpactSummary() {
 
   return (
     <main style={S.widget}>
-      {isPreviewMode && <div style={S.banner}>Open via NitroStack Studio for live assessment data.</div>}
-
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, animation: 'fadeUp 350ms ease-out both' }}>
         <div>
           <div style={S.eyebrow}>APIGuard Release Evidence</div>
