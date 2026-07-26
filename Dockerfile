@@ -17,6 +17,8 @@ COPY package.json ./
 COPY src/widgets/package.json ./src/widgets/package.json
 RUN npm install --omit=dev --ignore-scripts
 COPY --from=build /app/dist ./dist
+COPY fixtures ./fixtures
+COPY .apiguard ./.apiguard
 
 USER node
 EXPOSE 3002
