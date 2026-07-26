@@ -145,7 +145,8 @@ Registers a custom OpenAPI baseline and candidate pair dynamically.
 ### `refresh_repository_evidence`
 Triggers a fresh GitHub code scan for a scenario.
 * `scenarioId`: `risky`
-* `repositories`: *(Leave empty or `["arckrisofficial/api-larp"]`)*
+* `repositories`: *(Leave empty or `["arckrisofficial/apiguard-react-consumer"]`)*
+* `forceRefresh`: `true`
 
 ### `assess_consumer_risk`
 Performs risk classification on evidence.
@@ -155,8 +156,9 @@ Performs risk classification on evidence.
 Adds or removes a GitHub repository from the scope.
 * `action`: `ADD`
 * `owner`: `arckrisofficial`
-* `repository`: `api-larp`
-* `reason`: `Adding primary backend service repository to scope.`
+* `repository`: `apiguard-react-consumer`
+* `reason`: `Adding React frontend consumer repository to scope.`
+* `confirmed`: `true`
 
 ---
 

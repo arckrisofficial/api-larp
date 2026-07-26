@@ -12,3 +12,4 @@ coverage/
 .nitrostudio/
 .apiguard/
 artifacts/
+.demo-repos/
