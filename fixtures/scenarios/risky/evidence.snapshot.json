@@ -61,7 +61,7 @@
       "lineStart": 2,
       "lineEnd": 4,
       "snippet": "export async function fetchUser() {\n  const res = await fetch('/api/v1/users/123');\n  return res.json();\n}",
-      "contentHash": "5761a29f8f4a1324888beccf7302f230cd7ad0ef43a3ed06ddc9e6bb07bb9edc",
+      "contentHash": "341b13ef3329a0bfd3cd287110d9747aa4427e1fe26de0dca5b3fcf1da9adb6b",
       "htmlUrl": "https://github.com/arckrisofficial/apiguard-react-consumer/blob/main/src/consumer.js#L2-L4"
     },
     {
@@ -74,7 +74,7 @@
       "lineStart": 4,
       "lineEnd": 6,
       "snippet": "def fetch_user():\n    response = requests.get('https://api.example.com/v1/users/123')\n    return response.json()",
-      "contentHash": "e305e554d3d7b4db1bfaeaee73eb23528b3a0c330f9a2e6b8159b3cb038237ba",
+      "contentHash": "59f2d00d4222d4cc538028dfa9ae745259a2905db90bfdce9b6629d195014d4a",
       "htmlUrl": "https://github.com/arckrisofficial/apiguard-python-consumer/blob/main/src/consumer.py#L4-L6"
     },
     {
@@ -87,7 +87,7 @@
       "lineStart": 8,
       "lineEnd": 11,
       "snippet": "func fetchUser() {\n\tresp, _ := http.Get(\"https://api.example.com/v1/users/123\")\n\tfmt.Println(resp.Status)\n}",
-      "contentHash": "09c1fa6e9e4f5cc4df5a02cfc55767b40974ed5009a7b7a692fc7c52dfcd65b5",
+      "contentHash": "0b959d9960c835e1d1950fadb970ec729fd19003d9d81c62a76c7c6043d5d691",
       "htmlUrl": "https://github.com/arckrisofficial/apiguard-go-consumer/blob/main/src/consumer.go#L8-L11"
     }
   ]

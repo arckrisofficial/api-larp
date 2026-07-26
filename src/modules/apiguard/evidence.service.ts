@@ -1,6 +1,6 @@
 import { Injectable } from '@nitrostack/core';
 import type { EvidenceSnapshotV2 } from '../../domain/evidence-snapshot.js';
-import type { ApiChange } from '../../domain/types.js';
+import type { ApiChange, EvidenceItem } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 import { EvidenceSnapshotRepository } from './evidence-snapshot.repository.js';
 import type { EvidenceDiscoveryResult } from './evidence.provider.js';
@@ -49,5 +49,32 @@ export class EvidenceService {
 
   getLatestSnapshot(scenarioId: string): EvidenceSnapshotV2 | undefined {
     return this.snapshotRepo.getLatestForScenario(scenarioId);
+  }
+
+  toEvidenceItems(snapshot: EvidenceSnapshotV2): EvidenceItem[] {
+    const queries = new Map(snapshot.queries.map((query) => [query.queryId, query]));
+    return snapshot.results.map((result) => {
+      const query = queries.get(result.queryId);
+      if (!query) throw new Error(`Snapshot result references unknown query ${result.queryId}.`);
+      return {
+        id: result.evidenceId,
+        changeSemanticKey: result.changeSemanticKey,
+        consumerImpactKey: result.consumerImpactKey,
+        evidenceFingerprint: result.evidenceFingerprint,
+        sourceMode: snapshot.origin === 'GITHUB' ? 'live' : 'snapshot',
+        capturedAt: snapshot.generatedAt,
+        repository: result.repository,
+        branch: result.branch,
+        commitSha: result.commitSha,
+        searchQuery: query.query,
+        relatedChangeIds: [...query.generatedFromChangeIds],
+        filePath: result.filePath,
+        lineStart: result.lineStart,
+        lineEnd: result.lineEnd,
+        snippet: result.snippet,
+        contentHash: result.contentHash,
+        htmlUrl: result.htmlUrl
+      };
+    });
   }
 }

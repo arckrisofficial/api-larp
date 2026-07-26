@@ -228,17 +228,7 @@ export class ApiGuardTools {
       snapshot = pair.snapshot;
     }
 
-    const items = snapshot.results.map((r) => ({
-      id: r.evidenceId,
-      changeSemanticKey: r.changeSemanticKey,
-      consumerImpactKey: r.consumerImpactKey,
-      evidenceFingerprint: r.evidenceFingerprint,
-      sourceMode: 'live' as const, capturedAt: snapshot.generatedAt,
-      repository: r.repository, branch: r.branch, commitSha: r.commitSha,
-      searchQuery: '', relatedChangeIds: [], filePath: r.filePath,
-      lineStart: r.lineStart, lineEnd: r.lineEnd, snippet: r.snippet,
-      contentHash: r.contentHash, htmlUrl: r.htmlUrl
-    }));
+    const items = this.evidenceService.toEvidenceItems(snapshot);
 
     const risk = await this.riskService.assess(changes, items);
     ctx.logger.info('Consumer risk assessed', { severity: risk.severity, classifierMode: risk.classifierMode });

@@ -59,7 +59,7 @@ export class AssessmentService {
     }
 
     // Risk classification
-    const risk = await this.riskService.assess(changes, snapshot.results.map(snapshotResultToEvidenceItem));
+    const risk = await this.riskService.assess(changes, this.evidenceService.toEvidenceItems(snapshot));
     const now = new Date().toISOString();
 
     const expectedReposCount = snapshot.coverage.repositoriesExpected;
@@ -90,6 +90,9 @@ export class AssessmentService {
       repositoryCommits,
       sourceMode: snapshot.origin === 'GITHUB' ? 'live' : 'snapshot',
       classifierMode: risk.classifierMode,
+      modelProvider: risk.modelProvider,
+      modelName: risk.modelName,
+      modelStatus: risk.modelStatus,
       repositoryScopeVersion: snapshot.repositoryScopeVersion,
       evidenceSnapshotId: snapshot.snapshotId,
       coverage: snapshot.coverage,
@@ -132,28 +135,6 @@ export class AssessmentService {
   update(assessment: Assessment): Assessment {
     return this.repository.update(assessment);
   }
-}
-
-function snapshotResultToEvidenceItem(r: any) {
-  return {
-    id: r.evidenceId,
-    changeSemanticKey: r.changeSemanticKey,
-    consumerImpactKey: r.consumerImpactKey,
-    evidenceFingerprint: r.evidenceFingerprint,
-    sourceMode: 'live' as const,
-    capturedAt: new Date().toISOString(),
-    repository: r.repository,
-    branch: r.branch,
-    commitSha: r.commitSha,
-    searchQuery: '',
-    relatedChangeIds: [],
-    filePath: r.filePath,
-    lineStart: r.lineStart,
-    lineEnd: r.lineEnd,
-    snippet: r.snippet,
-    contentHash: r.contentHash,
-    htmlUrl: r.htmlUrl
-  };
 }
 
 function computeTruthfulStatusAndSeverity(

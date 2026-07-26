@@ -1,5 +1,5 @@
 import { Injectable } from '@nitrostack/core';
-import { computeSeverity, fallbackAssess } from '../../domain/deterministic-risk.js';
+import { computeSeverity, deterministicClassify, fallbackAssess } from '../../domain/deterministic-risk.js';
 import type { ApiChange, AssessedEvidence, EvidenceItem, MigrationAction } from '../../domain/types.js';
 import { ApiGuardConfig } from './config.service.js';
 import { RISK_SYSTEM_PROMPT, riskUserPrompt } from './risk.prompt.js';
@@ -10,6 +10,9 @@ export interface RiskAssessmentResult {
   classifierMode: 'llm' | 'deterministic-fallback' | 'hybrid-with-fallback';
   evidence: AssessedEvidence[];
   limitations: string[];
+  modelProvider?: 'openai' | 'anthropic' | 'gemini';
+  modelName?: string;
+  modelStatus: 'disabled' | 'not-needed' | 'success' | 'fallback';
 }
 
 @Injectable({ deps: [ApiGuardConfig] })
@@ -21,9 +24,10 @@ export class RiskService {
     if (!evidence.length) {
       return {
         severity: computeSeverity([]),
-        classifierMode: this.config.useLlm ? 'llm' : 'deterministic-fallback',
+        classifierMode: 'deterministic-fallback',
         evidence: [],
-        limitations: ['No consumer code evidence items were provided for risk assessment.']
+        limitations: ['No consumer code evidence items were provided for risk assessment.'],
+        modelStatus: 'not-needed'
       };
     }
 
@@ -33,13 +37,26 @@ export class RiskService {
         severity: computeSeverity(evidence.map((item) => fallbackAssess(item, changes))),
         classifierMode: 'deterministic-fallback',
         evidence: evidence.map((item) => fallbackAssess(item, changes)),
-        limitations
+        limitations,
+        modelStatus: 'disabled'
       };
     }
 
-    const cappedEvidence = evidence.slice(0, this.config.maxEvidenceItems);
-    if (evidence.length > this.config.maxEvidenceItems) {
-      limitations.push(`Evidence capped to ${this.config.maxEvidenceItems} items (out of ${evidence.length}) for LLM classification.`);
+    const ambiguousEvidence = evidence.filter((item) => !deterministicClassify(item, changes));
+    if (!ambiguousEvidence.length) {
+      const classified = evidence.map((item) => deterministicClassify(item, changes) ?? fallbackAssess(item, changes));
+      return {
+        severity: computeSeverity(classified),
+        classifierMode: 'deterministic-fallback',
+        evidence: classified,
+        limitations: ['All evidence was classified deterministically; no model call was required.'],
+        modelStatus: 'not-needed'
+      };
+    }
+
+    const cappedEvidence = ambiguousEvidence.slice(0, this.config.maxEvidenceItems);
+    if (ambiguousEvidence.length > this.config.maxEvidenceItems) {
+      limitations.push(`Ambiguous evidence capped to ${this.config.maxEvidenceItems} items (out of ${ambiguousEvidence.length}) for LLM classification.`);
     }
 
     try {
@@ -49,7 +66,10 @@ export class RiskService {
         severity: computeSeverity(reconciled.evidence),
         classifierMode: reconciled.hadFallback ? 'hybrid-with-fallback' : 'llm',
         evidence: reconciled.evidence,
-        limitations: [...limitations, ...rawOutput.limitations]
+        limitations: [...limitations, ...rawOutput.limitations],
+        modelProvider: this.config.llmProvider,
+        modelName: this.selectedModelName(),
+        modelStatus: 'success'
       };
     } catch (err) {
       const sanitizedMsg = String(err instanceof Error ? err.message : err)
@@ -60,7 +80,10 @@ export class RiskService {
         severity: computeSeverity(evidence.map((item) => fallbackAssess(item, changes))),
         classifierMode: 'deterministic-fallback',
         evidence: evidence.map((item) => fallbackAssess(item, changes)),
-        limitations
+        limitations,
+        modelProvider: this.config.llmProvider,
+        modelName: this.selectedModelName(),
+        modelStatus: 'fallback'
       };
     }
   }
@@ -75,6 +98,8 @@ export class RiskService {
     let hadFallback = false;
 
     const evidence: AssessedEvidence[] = allEvidence.map((item) => {
+      const deterministic = deterministicClassify(item, changes);
+      if (deterministic) return deterministic;
       const modelAssessment = modelMap.get(item.id);
       if (!modelAssessment) {
         hadFallback = true;
@@ -167,7 +192,7 @@ export class RiskService {
       method: 'POST', signal,
       headers: { Authorization: `Bearer ${this.config.geminiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: this.config.geminiModel, temperature: 0,
+        model: this.config.geminiModel,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: RISK_SYSTEM_PROMPT },
@@ -180,5 +205,13 @@ export class RiskService {
     const content = payload.choices?.[0]?.message?.content;
     if (typeof content !== 'string') throw new Error('Gemini response contained no JSON text.');
     return content;
+  }
+
+  private selectedModelName(): string {
+    return this.config.llmProvider === 'anthropic'
+      ? this.config.anthropicModel
+      : this.config.llmProvider === 'gemini'
+        ? this.config.geminiModel
+        : this.config.openAiModel;
   }
 }

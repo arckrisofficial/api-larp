@@ -46,7 +46,7 @@ export class ApiGuardConfig {
   readonly anthropicKey = process.env.ANTHROPIC_API_KEY ?? '';
   readonly anthropicModel = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
   readonly geminiKey = process.env.GEMINI_API_KEY ?? '';
-  readonly geminiModel = process.env.GEMINI_MODEL ?? 'gemini-flash-latest';
+  readonly geminiModel = process.env.GEMINI_MODEL ?? 'gemini-3.6-flash';
   readonly llmTimeoutMs = integer('LLM_TIMEOUT_MS', 7000);
   readonly maxEvidenceItems = integer('LLM_MAX_EVIDENCE_ITEMS', 8);
   readonly maxSnippetChars = integer('LLM_MAX_SNIPPET_CHARS', 1200);

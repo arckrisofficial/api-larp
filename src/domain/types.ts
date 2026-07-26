@@ -140,6 +140,9 @@ export interface Assessment {
   repositoryCommits: Record<string, string>;
   sourceMode: 'snapshot' | 'live';
   classifierMode: 'llm' | 'deterministic-fallback' | 'hybrid-with-fallback';
+  modelProvider?: 'openai' | 'anthropic' | 'gemini';
+  modelName?: string;
+  modelStatus?: 'disabled' | 'not-needed' | 'success' | 'fallback';
   repositoryScopeVersion: number;
   evidenceSnapshotId?: string;
   coverage: EvidenceCoverage;
