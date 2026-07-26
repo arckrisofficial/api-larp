@@ -25,6 +25,7 @@
     "demo:live": "cross-env USE_LIVE_GITHUB=true USE_LLM=true DEMO_SCENARIO=risky nitrostack-cli dev",
     "snapshot:refresh": "tsx scripts/refresh-demo-snapshot.ts",
     "smoke:deployed": "tsx scripts/smoke-deployed.ts",
+    "test:github-pr-live": "tsx scripts/test-github-pr-live.ts",
     "install:all": "npm install",
     "widget:install": "npm --prefix src/widgets install",
     "widget:typecheck": "npm --prefix src/widgets run typecheck",
